@@ -196,3 +196,55 @@ def test_schema_has_rest_count_mode_no_legacy_fields() -> None:
     assert "reminder.reset_mode" not in keys
     assert "reminder.snooze_min" not in keys
 
+
+# ---------------------------------------------------------------------------
+# FR-1 tests: reminding_display_mode
+# ---------------------------------------------------------------------------
+
+
+def test_reminder_config_default_reminding_display_mode() -> None:
+    """Default ReminderConfig.reminding_display_mode must be 'overtime'."""
+    from src.config import ReminderConfig
+
+    assert ReminderConfig().reminding_display_mode == "overtime"
+
+
+def test_load_config_default_reminding_display_mode_when_field_missing(
+    tmp_path: Path,
+) -> None:
+    """Old YAML without reminding_display_mode loads and defaults to 'overtime'."""
+    path = tmp_path / "legacy.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {"source": {"type": "webcam"}},
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(str(path))
+    assert config.reminder.reminding_display_mode == "overtime"
+
+
+def test_validate_reminding_display_mode_invalid() -> None:
+    """validate() must report an error for an invalid reminding_display_mode value."""
+    errors = validate(
+        {
+            "source": {"type": "webcam"},
+            "reminder": {"reminding_display_mode": "foo"},
+        }
+    )
+    assert any("reminding_display_mode" in e for e in errors)
+
+
+@pytest.mark.parametrize("mode", ["overtime", "work_and_reminder"])
+def test_validate_reminding_display_mode_valid(mode: str) -> None:
+    """validate() must NOT report an error for valid reminding_display_mode values."""
+    errors = validate(
+        {
+            "source": {"type": "webcam"},
+            "reminder": {"reminding_display_mode": mode},
+        }
+    )
+    assert not any("reminding_display_mode" in e for e in errors)
+

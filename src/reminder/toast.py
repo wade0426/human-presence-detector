@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QSystemTrayIcon
 
+from src.duration_format import format_duration_zh
 from src.types import ReminderContext
 from src.ui import strings
 
@@ -17,7 +18,7 @@ class ToastReminder(QObject):
     def show(self, ctx: ReminderContext) -> None:
         self._tray.showMessage(
             strings.REMIND_TITLE,
-            strings.REMIND_BODY.format(minutes=ctx.work_minutes),
+            strings.REMIND_BODY.format(duration=format_duration_zh(ctx.work_elapsed_sec)),
         )
         self.dismissed.emit()
 

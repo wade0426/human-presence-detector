@@ -9,6 +9,7 @@ class ConnectionState(Enum):
     CONNECTED = "connected"
     RECONNECTING = "reconnecting"
     NO_SIGNAL = "no_signal"
+    STREAM_ERROR = "stream_error"  # ★ 新增：影像異常（解碼失敗或逞時）
     ERROR = "error"
 
 
@@ -17,6 +18,7 @@ _STATUS_MAP: dict[str, ConnectionState] = {
     "connected": ConnectionState.CONNECTED,
     "reconnecting": ConnectionState.RECONNECTING,
     "no_signal": ConnectionState.NO_SIGNAL,
+    "stream_error": ConnectionState.STREAM_ERROR,  # ★ 新增
 }
 
 _SEVERITY: dict[ConnectionState, str] = {
@@ -25,6 +27,7 @@ _SEVERITY: dict[ConnectionState, str] = {
     ConnectionState.CONNECTED: "success",
     ConnectionState.RECONNECTING: "warning",
     ConnectionState.NO_SIGNAL: "warning",
+    ConnectionState.STREAM_ERROR: "warning",  # ★ 新增
     ConnectionState.ERROR: "danger",
 }
 
@@ -34,6 +37,7 @@ _ICON_KEY: dict[ConnectionState, str] = {
     ConnectionState.CONNECTED: "conn-connected",
     ConnectionState.RECONNECTING: "conn-reconnecting",
     ConnectionState.NO_SIGNAL: "conn-no-signal",
+    ConnectionState.STREAM_ERROR: "conn-stream-error",  # ★ 新增
     ConnectionState.ERROR: "conn-error",
 }
 

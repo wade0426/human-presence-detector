@@ -1,7 +1,12 @@
 # 總體進度：人體辨識休息提醒系統 — 時間顯示與提醒異常修正
 
 > **上游文件**：`docs/proposal.md`（需求）、`docs/detailed-design.md`（詳細設計）  
-> **最後更新**：2026-06-10
+> **最後更新**：2026-06-10 01:36（已完成）
+
+## 基線測試結果
+
+- pytest 基線：151 passed（執行前量測）
+- 開始執行時間：2026-06-10 00:18
 
 ---
 
@@ -9,19 +14,19 @@
 
 | 模塊 | 任務檔 | 對應 FR | 狀態 |
 |---|---|---|---|
-| `src/types.py` | [types.md](./types.md) | FR-1, FR-3 | ⬜ 未開始 |
-| `src/duration_format.py`（新增） | [duration-format.md](./duration-format.md) | FR-1, FR-3 | ⬜ 未開始 |
-| `src/today_work_model.py`（新增） | [today-work-model.md](./today-work-model.md) | FR-4 | ⬜ 未開始 |
-| `src/capture/stream_health.py`（新增） | [stream-health.md](./stream-health.md) | FR-6 | ⬜ 未開始 |
-| `src/timer_engine.py` | [timer-engine.md](./timer-engine.md) | FR-1, FR-2, FR-4 | ⬜ 未開始 |
-| `src/config.py` / `settings_schema.py` / `config.yaml` | [config-settings.md](./config-settings.md) | FR-1 | ⬜ 未開始 |
-| `src/logging_store.py` | [logging-store.md](./logging-store.md) | FR-5 | ⬜ 未開始 |
-| `src/app/connection_state.py` 等（連線狀態） | [connection-state.md](./connection-state.md) | FR-6 | ⬜ 未開始 |
-| 提醒派發（`worker.py` / `popup.py` / `toast.py` / `strings.py`） | [reminder-dispatch.md](./reminder-dispatch.md) | FR-3 | ⬜ 未開始 |
-| `src/ui/widgets/status_strip.py` | [status-strip.md](./status-strip.md) | FR-1, FR-2 | ⬜ 未開始 |
-| `src/ui/widgets/today_summary_view.py` | [today-summary-view.md](./today-summary-view.md) | FR-4 | ⬜ 未開始 |
-| `src/ui/main_window.py` | [main-window.md](./main-window.md) | FR-1, FR-4 | ⬜ 未開始 |
-| `src/main.py` | [main-entrypoint.md](./main-entrypoint.md) | FR-5, FR-6 | ⬜ 未開始 |
+| `src/types.py` | [types.md](./types.md) | FR-1, FR-3 | ✅ 已完成 |
+| `src/duration_format.py`（新增） | [duration-format.md](./duration-format.md) | FR-1, FR-3 | ✅ 已完成 |
+| `src/today_work_model.py`（新增） | [today-work-model.md](./today-work-model.md) | FR-4 | ✅ 已完成 |
+| `src/capture/stream_health.py`（新增） | [stream-health.md](./stream-health.md) | FR-6 | ✅ 已完成 |
+| `src/timer_engine.py` | [timer-engine.md](./timer-engine.md) | FR-1, FR-2, FR-4 | ✅ 已完成 |
+| `src/config.py` / `settings_schema.py` / `config.yaml` | [config-settings.md](./config-settings.md) | FR-1 | ✅ 已完成 |
+| `src/logging_store.py` | [logging-store.md](./logging-store.md) | FR-5 | ✅ 已完成 |
+| `src/app/connection_state.py` 等（連線狀態） | [connection-state.md](./connection-state.md) | FR-6 | ✅ 已完成 |
+| 提醒派發（`worker.py` / `popup.py` / `toast.py` / `strings.py`） | [reminder-dispatch.md](./reminder-dispatch.md) | FR-3 | ✅ 已完成 |
+| `src/ui/widgets/status_strip.py` | [status-strip.md](./status-strip.md) | FR-1, FR-2 | ✅ 已完成 |
+| `src/ui/widgets/today_summary_view.py` | [today-summary-view.md](./today-summary-view.md) | FR-4 | ✅ 已完成 |
+| `src/ui/main_window.py` | [main-window.md](./main-window.md) | FR-1, FR-4 | ✅ 已完成 |
+| `src/main.py` | [main-entrypoint.md](./main-entrypoint.md) | FR-5, FR-6 | ✅ 已完成 |
 
 ---
 
@@ -56,9 +61,18 @@
 
 ## 驗收檢查清單（按 FR）
 
-- [ ] **FR-1**：提醒中顯示「超時 MM:SS」，切換模式後顯示「工作 + 提醒」
-- [ ] **FR-2**：暫停後數字凍結，恢復後不回溯
-- [ ] **FR-3**：彈窗顯示實際工作時間，不顯示「0 分鐘」
-- [ ] **FR-4**：「今日工作」工作中持續更新，休息結束後完整記錄
-- [ ] **FR-5**：完整一輪流程，背景無 `SQLite objects created in a thread...` 例外
-- [ ] **FR-6**：串流中斷時 UI 顯示「影像異常」，背景錯誤訊息不刷屏
+- [x] **FR-1**：提醒中顯示「超時 MM:SS」，切換模式後顯示「工作 + 提醒」
+- [x] **FR-2**：暫停後數字凍結，恢復後不回溯
+- [x] **FR-3**：彈窗顯示實際工作時間，不顯示「0 分鐘」
+- [x] **FR-4**：「今日工作」工作中持續更新，休息結束後完整記錄
+- [x] **FR-5**：完整一輪流程，背景無 `SQLite objects created in a thread...` 例外
+- [x] **FR-6**：串流中斷時 UI 顯示「影像異常」，背景錯誤訊息不刷屏
+
+---
+
+## 最終驗收結果
+
+- pytest：236 passed, 0 failed
+- mypy：Found 0 errors
+- ruff：All checks passed
+- 完成時間：2026-06-10 01:36

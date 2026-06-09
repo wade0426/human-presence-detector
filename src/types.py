@@ -74,6 +74,7 @@ class TimerSnapshot:
     reminder_active: bool
     rest_remaining_sec: float = 0.0
     rest_elapsed_sec: float = 0.0
+    overtime_sec: float = 0.0  # REMINDING: max(0, work_elapsed - work_threshold)
 
 
 @dataclass(frozen=True)
@@ -82,3 +83,4 @@ class ReminderContext:
     media_path: str
     media_type: str
     sound_path: str
+    work_elapsed_sec: float = 0.0  # actual continuous work seconds at reminder trigger

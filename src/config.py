@@ -59,6 +59,7 @@ class FloatingConfig:
 class ReminderConfig:
     method: str = "popup"
     repeat_interval_min: float = 2.0
+    reminding_display_mode: str = "overtime"  # "overtime" | "work_and_reminder"
     popup: PopupConfig = field(default_factory=PopupConfig)
     floating: FloatingConfig = field(default_factory=FloatingConfig)
 
@@ -130,6 +131,14 @@ def validate(raw: dict[str, Any]) -> list[str]:
     method = reminder.get("method", ReminderConfig.method)
     if method not in {"popup", "toast", "floating"}:
         errors.append("reminder.method must be one of: popup, toast, floating")
+
+    reminding_display_mode = reminder.get(
+        "reminding_display_mode", ReminderConfig.reminding_display_mode
+    )
+    if reminding_display_mode not in {"overtime", "work_and_reminder"}:
+        errors.append(
+            "reminder.reminding_display_mode must be one of: overtime, work_and_reminder"
+        )
 
     for key in ("repeat_interval_min",):
         value = reminder.get(key, getattr(ReminderConfig, key))
@@ -248,6 +257,11 @@ def _app_config_from_dict(raw: dict[str, Any]) -> AppConfig:
             repeat_interval_min=float(
                 reminder_raw.get(
                     "repeat_interval_min", ReminderConfig.repeat_interval_min
+                )
+            ),
+            reminding_display_mode=str(
+                reminder_raw.get(
+                    "reminding_display_mode", ReminderConfig.reminding_display_mode
                 )
             ),
             popup=PopupConfig(

@@ -36,7 +36,19 @@ class TimerEngine:
         self._rest_started_at: float | None = None
         self._rest_accumulated: float = 0.0
 
-        # Pause support
+        # Pause support (FR-2)
+        # ─────────────────────────────────────────────────────────────────────
+        # Freeze contract:
+        #   pause(now) : sets _paused=True, records _state_before_pause.
+        #                Does NOT update _last_t or _work_elapsed — all
+        #                elapsed counters remain frozen at the values they
+        #                held when pause() was called.
+        #   update()   : returns [] immediately while _paused, so no dt is
+        #                ever accumulated during the suspended interval.
+        #   resume(now): sets _paused=False and resets _last_t = now.
+        #                The next update() sees (now - _last_t) ≈ 0, so no
+        #                "phantom" time is credited for the pause duration.
+        # ─────────────────────────────────────────────────────────────────────
         self._paused: bool = False
         self._state_before_pause: TimerState = TimerState.IDLE
 
@@ -47,6 +59,7 @@ class TimerEngine:
         return self._state
 
     def update(self, present: bool, now: float) -> list[TimerEvent]:
+        # FR-2: While paused, all counters are frozen — return immediately.
         if self._paused:
             return []
 
@@ -115,7 +128,17 @@ class TimerEngine:
                     self._reminder_last_t = now
                     events.append(self._event(TimerEventType.REMINDER_REPEATED, now))
             else:
-                # Direct absence from REMINDING → start rest
+                # FR-4: Direct absence from REMINDING → start rest.
+                # Emit WORK_ENDED before REST_STARTED (work session ends here).
+                events.append(
+                    self._event(
+                        TimerEventType.WORK_ENDED,
+                        now,
+                        duration_sec=self._work_elapsed,
+                        ended_by="rest",
+                    )
+                )
+                self._work_elapsed = 0.0  # reset so RESTING snapshot shows 0
                 self._state = TimerState.RESTING
                 self._rest_started_at = now
                 self._rest_accumulated = 0.0
@@ -145,18 +168,35 @@ class TimerEngine:
         return events
 
     def start_rest(self, now: float) -> list[TimerEvent]:
-        """Transition from REMINDING to RESTING (user manually starts rest)."""
+        """Transition from REMINDING to RESTING (user manually starts rest).
+
+        FR-4: Emits WORK_ENDED (ended_by='rest') before REST_STARTED so that
+        the work session is properly closed regardless of how rest is initiated.
+        """
         if self._state != TimerState.REMINDING:
             return []
+        # FR-4: Close the work session before entering rest.
+        work_ended = self._event(
+            TimerEventType.WORK_ENDED,
+            now,
+            duration_sec=self._work_elapsed,
+            ended_by="rest",
+        )
+        self._work_elapsed = 0.0  # reset so RESTING snapshot shows 0
         self._state = TimerState.RESTING
         self._rest_started_at = now
         self._rest_accumulated = 0.0
         self._reminder_last_t = None
         self._last_t = now
-        return [self._event(TimerEventType.REST_STARTED, now)]
+        return [work_ended, self._event(TimerEventType.REST_STARTED, now)]
 
     def confirm_return(self, now: float) -> list[TimerEvent]:
-        """Transition from AWAITING_RETURN to WORKING (user confirms they're back)."""
+        """Transition from AWAITING_RETURN to WORKING (user confirms they're back).
+
+        NOTE: WORK_ENDED was already emitted when the rest session began
+        (in start_rest() or via absence from REMINDING). This method does NOT
+        emit WORK_ENDED again.
+        """
         if self._state != TimerState.AWAITING_RETURN:
             return []
         rest_duration = 0.0
@@ -175,13 +215,27 @@ class TimerEngine:
         return events
 
     def pause(self, now: float) -> None:
-        """Suspend the timer, freezing all elapsed counters."""
+        """Suspend the timer, freezing all elapsed counters.
+
+        FR-2 freeze contract: records current _state, sets _paused=True.
+        _last_t and _work_elapsed are intentionally NOT updated here so that
+        no phantom time is added during the suspension period.
+        """
         if not self._paused:
             self._state_before_pause = self._state
             self._paused = True
+            # Deliberately do NOT update _last_t here — this ensures _last_t
+            # stays at whatever value it was before the pause, and the next
+            # update() after resume() will see dt ≈ 0 (because resume() resets
+            # _last_t = now).
 
     def resume(self, now: float) -> None:
-        """Resume the timer from suspended state, resetting the time baseline."""
+        """Resume the timer from suspended state, resetting the time baseline.
+
+        FR-2 freeze contract: sets _paused=False and resets _last_t = now so
+        that the next update() call computes dt = (new_now - now) ≈ 0,
+        preventing any back-attribution of time during the pause interval.
+        """
         if self._paused:
             self._paused = False
             self._last_t = now  # ★ Key: reset baseline so next dt ≈ 0
@@ -208,6 +262,15 @@ class TimerEngine:
             elif self._rest_count_mode == RestCountMode.PRESENCE:
                 rest_elapsed = self._rest_accumulated
 
+        # FR-1: overtime_sec — only meaningful in REMINDING state.
+        # In SUSPENDED state _work_elapsed is frozen (pause contract), so
+        # overtime_sec is implicitly frozen too (computed from frozen value).
+        overtime_sec = (
+            max(0.0, self._work_elapsed - self._work_threshold_sec)
+            if self._state == TimerState.REMINDING
+            else 0.0
+        )
+
         return TimerSnapshot(
             state=state,
             work_elapsed_sec=self._work_elapsed,
@@ -216,6 +279,7 @@ class TimerEngine:
             reminder_active=self._state == TimerState.REMINDING,
             rest_remaining_sec=rest_remaining,
             rest_elapsed_sec=rest_elapsed,
+            overtime_sec=overtime_sec,
         )
 
     def _event(

@@ -130,25 +130,33 @@ def test_reminding_repeated_every_interval() -> None:
     assert [e.type for e in ev2] == [TimerEventType.REMINDER_REPEATED]
 
 
-# 測試 3: 提醒中呼叫 start_rest → state == RESTING, REST_STARTED
+# 測試 3: 提醒中呼叫 start_rest → state == RESTING, WORK_ENDED + REST_STARTED
 def test_start_rest_from_reminding() -> None:
     engine = _engine()
     engine.update(True, 0.0)
     engine.update(True, 10.0)  # → REMINDING
 
     events = engine.start_rest(10.0)
-    assert [e.type for e in events] == [TimerEventType.REST_STARTED]
+    types = [e.type for e in events]
+    # FR-4: WORK_ENDED must appear before REST_STARTED
+    assert TimerEventType.WORK_ENDED in types
+    assert TimerEventType.REST_STARTED in types
+    assert types.index(TimerEventType.WORK_ENDED) < types.index(TimerEventType.REST_STARTED)
     assert engine.state == TimerState.RESTING
 
 
-# 測試 4: 提醒中直接離座 → state == RESTING, REST_STARTED
+# 測試 4: 提醒中直接離座 → state == RESTING, WORK_ENDED + REST_STARTED
 def test_absence_during_reminding_starts_rest() -> None:
     engine = _engine()
     engine.update(True, 0.0)
     engine.update(True, 10.0)  # → REMINDING
 
     events = engine.update(False, 11.0)  # 離座
-    assert [e.type for e in events] == [TimerEventType.REST_STARTED]
+    types = [e.type for e in events]
+    # FR-4: WORK_ENDED must appear before REST_STARTED
+    assert TimerEventType.WORK_ENDED in types
+    assert TimerEventType.REST_STARTED in types
+    assert types.index(TimerEventType.WORK_ENDED) < types.index(TimerEventType.REST_STARTED)
     assert engine.state == TimerState.RESTING
 
 
@@ -157,7 +165,7 @@ def test_presence_mode_rest_accumulates_absence_only() -> None:
     engine = _engine(required_rest_sec=5.0, rest_count_mode=RestCountMode.PRESENCE)
     engine.update(True, 0.0)
     engine.update(True, 10.0)  # → REMINDING
-    engine.start_rest(10.0)     # → RESTING
+    engine.start_rest(10.0)  # → RESTING
 
     # 離座 3 秒
     engine.update(False, 11.0)
@@ -183,7 +191,7 @@ def test_fixed_mode_rest_satisfied_regardless_of_presence() -> None:
     engine = _engine(required_rest_sec=5.0, rest_count_mode=RestCountMode.FIXED)
     engine.update(True, 0.0)
     engine.update(True, 10.0)  # → REMINDING
-    engine.start_rest(10.0)    # → RESTING, rest_started_at = 10
+    engine.start_rest(10.0)  # → RESTING, rest_started_at = 10
 
     # 在場期間過 5 秒（FIXED 模式不管 presence）
     engine.update(True, 12.0)
@@ -200,7 +208,7 @@ def test_awaiting_return_update_noop_and_confirm_return() -> None:
     engine = _engine(required_rest_sec=5.0, rest_count_mode=RestCountMode.FIXED)
     engine.update(True, 0.0)
     engine.update(True, 10.0)  # → REMINDING
-    engine.start_rest(10.0)    # → RESTING
+    engine.start_rest(10.0)  # → RESTING
 
     engine.update(True, 15.0)  # satisfied → AWAITING_RETURN
 
@@ -224,7 +232,7 @@ def test_awaiting_return_update_noop_and_confirm_return() -> None:
 def test_pause_freeze_does_not_accumulate_elapsed() -> None:
     engine = _engine(work_threshold_sec=100.0)
     engine.update(True, 0.0)
-    engine.update(True, 4.0)   # work_elapsed = 4s
+    engine.update(True, 4.0)  # work_elapsed = 4s
 
     # 暫停期間 snapshot.state == SUSPENDED
     engine.pause(5.0)
@@ -250,11 +258,11 @@ def test_pause_freeze_does_not_accumulate_elapsed() -> None:
 def test_away_resume_and_reset() -> None:
     engine = _engine(work_threshold_sec=100.0, reset_threshold_sec=5.0)
     engine.update(True, 0.0)
-    engine.update(True, 4.0)   # work_elapsed = 4s
+    engine.update(True, 4.0)  # work_elapsed = 4s
 
     # 短暫離座（不達 reset_threshold）
     engine.update(False, 5.0)
-    engine.update(True, 8.0)   # return before 5s absence → stays WORKING
+    engine.update(True, 8.0)  # return before 5s absence → stays WORKING
     assert engine.state == TimerState.WORKING
     snap = engine.snapshot(8.0)
     assert snap.work_elapsed_sec == 4.0  # preserved
@@ -294,3 +302,170 @@ def test_snapshot_resting_rest_remaining_and_elapsed() -> None:
     snap2 = engine_pres.snapshot(14.0)
     assert snap2.state == TimerState.RESTING
     assert abs(snap2.rest_elapsed_sec - 4.0) < 0.01  # 1 + 3 = 4s absence
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 新增測試（本次需求 FR-1、FR-2、FR-4）
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+# ── FR-1: overtime_sec ───────────────────────────────────────────────────────
+
+
+def test_overtime_sec_accumulates_in_reminding() -> None:
+    """overtime_sec grows linearly with work_elapsed beyond the threshold."""
+    engine = _engine(work_threshold_sec=10.0)
+    engine.update(True, 0.0)   # WORK_STARTED
+    engine.update(True, 10.0)  # → REMINDING (work_elapsed == threshold)
+
+    snap10 = engine.snapshot(10.0)
+    assert snap10.overtime_sec == 0.0  # just crossed threshold
+
+    engine.update(True, 13.0)  # 3 more seconds in REMINDING
+    snap13 = engine.snapshot(13.0)
+    assert abs(snap13.overtime_sec - 3.0) < 0.01
+
+    engine.update(True, 16.0)  # 6 more seconds total overtime
+    snap16 = engine.snapshot(16.0)
+    assert abs(snap16.overtime_sec - 6.0) < 0.01
+
+
+def test_overtime_sec_is_zero_in_non_reminding_states() -> None:
+    """overtime_sec is 0 in WORKING state (and all non-REMINDING states)."""
+    engine = _engine(work_threshold_sec=10.0)
+    engine.update(True, 0.0)   # WORKING
+    engine.update(True, 4.0)
+
+    snap = engine.snapshot(4.0)
+    assert snap.overtime_sec == 0.0
+    assert snap.state == TimerState.WORKING
+
+
+def test_overtime_sec_frozen_during_pause() -> None:
+    """In SUSPENDED state, overtime_sec is frozen (work_elapsed doesn't grow)."""
+    engine = _engine(work_threshold_sec=10.0)
+    engine.update(True, 0.0)
+    engine.update(True, 10.0)  # → REMINDING
+    engine.update(True, 13.0)  # overtime = 3s
+
+    snap_before = engine.snapshot(13.0)
+    assert abs(snap_before.overtime_sec - 3.0) < 0.01
+
+    engine.pause(13.0)
+    # Even though real time passes, paused updates return [] and don't accumulate
+    engine.update(True, 60.0)
+    engine.update(True, 90.0)
+
+    snap_paused = engine.snapshot(90.0)
+    assert snap_paused.state == TimerState.SUSPENDED
+    # overtime_sec should still reflect the frozen work_elapsed (3s above threshold)
+    assert abs(snap_paused.overtime_sec - 3.0) < 0.01
+
+
+# ── FR-4: WORK_ENDED completeness ───────────────────────────────────────────
+
+
+def test_work_ended_emitted_by_start_rest_with_correct_duration() -> None:
+    """start_rest() path: WORK_ENDED has duration == work_elapsed, ended_by == 'rest'."""
+    engine = _engine(work_threshold_sec=10.0)
+    engine.update(True, 0.0)   # WORK_STARTED
+    engine.update(True, 10.0)  # → REMINDING; work_elapsed = 10
+    engine.update(True, 13.0)  # work_elapsed = 13
+
+    events = engine.start_rest(13.0)
+    types = [e.type for e in events]
+    assert TimerEventType.WORK_ENDED in types
+
+    work_ended = next(e for e in events if e.type == TimerEventType.WORK_ENDED)
+    assert abs(work_ended.duration_sec - 13.0) < 0.01
+    assert work_ended.ended_by == "rest"
+
+    # work_elapsed resets to 0 after entering rest
+    snap = engine.snapshot(13.0)
+    assert snap.work_elapsed_sec == 0.0
+
+
+def test_work_ended_emitted_by_auto_absence_with_correct_duration() -> None:
+    """Auto-absence path: WORK_ENDED has duration == work_elapsed, ended_by == 'rest'."""
+    engine = _engine(work_threshold_sec=10.0)
+    engine.update(True, 0.0)   # WORK_STARTED
+    engine.update(True, 10.0)  # → REMINDING; work_elapsed = 10
+    engine.update(True, 12.0)  # work_elapsed = 12
+
+    events = engine.update(False, 12.0)  # absence → RESTING
+    types = [e.type for e in events]
+    assert TimerEventType.WORK_ENDED in types
+
+    work_ended = next(e for e in events if e.type == TimerEventType.WORK_ENDED)
+    assert abs(work_ended.duration_sec - 12.0) < 0.01
+    assert work_ended.ended_by == "rest"
+
+    snap = engine.snapshot(12.0)
+    assert snap.work_elapsed_sec == 0.0
+
+
+def test_work_ended_emitted_exactly_once_per_cycle() -> None:
+    """Full work→remind→rest→confirm cycle: WORK_ENDED fires exactly once."""
+    engine = _engine(
+        work_threshold_sec=10.0,
+        required_rest_sec=5.0,
+        rest_count_mode=RestCountMode.FIXED,
+    )
+
+    all_events: list = []
+
+    all_events += engine.update(True, 0.0)    # WORK_STARTED
+    all_events += engine.update(True, 10.0)   # → REMINDING
+    # Manually start rest (WORK_ENDED should appear here)
+    all_events += engine.start_rest(10.0)     # WORK_ENDED + REST_STARTED
+    all_events += engine.update(True, 15.0)   # rest satisfied → RETURN_PROMPT
+    # confirm_return should NOT emit another WORK_ENDED
+    all_events += engine.confirm_return(15.0)  # REST_ENDED + WORK_STARTED
+
+    work_ended_events = [e for e in all_events if e.type == TimerEventType.WORK_ENDED]
+    assert len(work_ended_events) == 1, (
+        f"Expected exactly 1 WORK_ENDED, got {len(work_ended_events)}: {work_ended_events}"
+    )
+    assert work_ended_events[0].ended_by == "rest"
+
+
+# ── FR-2: pause/resume freeze contract ───────────────────────────────────────
+
+
+def test_pause_freeze_work_elapsed_unchanged_during_pause() -> None:
+    """work_elapsed does not change during pause regardless of update() calls."""
+    engine = _engine(work_threshold_sec=100.0)
+    engine.update(True, 0.0)
+    engine.update(True, 5.0)  # work_elapsed = 5
+
+    snap_before = engine.snapshot(5.0)
+    assert abs(snap_before.work_elapsed_sec - 5.0) < 0.01
+
+    engine.pause(5.0)
+    # Multiple updates during pause — all return [] and don't advance time
+    engine.update(True, 10.0)
+    engine.update(True, 30.0)
+    engine.update(True, 100.0)
+
+    snap_paused = engine.snapshot(100.0)
+    assert abs(snap_paused.work_elapsed_sec - 5.0) < 0.01, (
+        "work_elapsed must be frozen during pause"
+    )
+
+
+def test_resume_first_update_has_near_zero_dt() -> None:
+    """After resume(now), the first update at a slightly later time accumulates ≈ dt only."""
+    engine = _engine(work_threshold_sec=100.0)
+    engine.update(True, 0.0)
+    engine.update(True, 5.0)  # work_elapsed = 5
+
+    engine.pause(5.0)
+    engine.update(True, 55.0)  # would be 50s if not paused
+
+    engine.resume(55.0)  # resets _last_t = 55
+    engine.update(True, 55.1)  # dt = 0.1, not 50.1
+
+    snap = engine.snapshot(55.1)
+    assert abs(snap.work_elapsed_sec - 5.1) < 0.01, (
+        "Resume must not back-attribute pause interval as work time"
+    )

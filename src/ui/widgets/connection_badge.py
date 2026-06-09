@@ -11,6 +11,7 @@ _ICON_CHARS: dict[str, str] = {
     "conn-connected": "●",
     "conn-reconnecting": "↻",
     "conn-no-signal": "⊘",
+    "conn-stream-error": "⚠",  # ★ 新增：影像異常
     "conn-error": "✕",
 }
 

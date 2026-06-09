@@ -148,6 +148,14 @@ SCHEMA: tuple[FieldSpec, ...] = (
         choices=("popup", "toast", "floating"),
     ),
     FieldSpec(
+        "reminder.reminding_display_mode",
+        "提醒中顯示",
+        "提醒中要顯示》超時時間「還是》工作時間＋提醒持續時間「。",
+        WidgetKind.CHOICE,
+        "提醒",
+        choices=("overtime", "work_and_reminder"),
+    ),
+    FieldSpec(
         "reminder.repeat_interval_min",
         "重複提醒間隔（分鐘）",
         "未處理時，每隔多久再提醒一次。",

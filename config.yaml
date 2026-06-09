@@ -24,6 +24,7 @@ timer:
 reminder:
   method: popup
   repeat_interval_min: 2.0
+  reminding_display_mode: overtime
   popup:
     media_path: data/assets/rest_placeholder.png
     media_type: image

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -8,7 +9,15 @@ from typing import Any
 from PySide6.QtCore import QObject, Signal
 
 from src.capture.frame_grabber import FrameProvider
+from src.capture.stream_health import StreamHealth, StreamHealthMonitor
 from src.types import BBox, ReminderContext, TimerEvent, TimerEventType
+
+_STREAM_STATUS_MAP: dict[StreamHealth, str] = {
+    StreamHealth.OK: "connected",
+    StreamHealth.NO_SIGNAL: "no_signal",
+    StreamHealth.TIMEOUT: "stream_error",
+    StreamHealth.DISCONNECTED: "reconnecting",
+}
 
 
 class DetectionWorker(QObject):
@@ -29,6 +38,7 @@ class DetectionWorker(QObject):
         detection_interval_sec: float,
         reminder_context: ReminderContext,
         clock: Callable[[], float] = time.monotonic,
+        stream_health_monitor: StreamHealthMonitor | None = None,
     ) -> None:
         super().__init__()
         self._frames = frames
@@ -39,6 +49,7 @@ class DetectionWorker(QObject):
         self._detection_interval_sec = detection_interval_sec
         self._reminder_context = reminder_context
         self._clock = clock
+        self._stream_health = stream_health_monitor or StreamHealthMonitor(clock=clock)
         self._stop = False
         self._paused = False
         self._work_start_dt: datetime | None = None
@@ -54,16 +65,20 @@ class DetectionWorker(QObject):
 
                 loop_start = self._clock()
                 frame = self._frames.latest()
+                now = self._clock()
                 if frame is None:
                     is_opened = self._frames.is_opened
-                    if is_opened:
-                        self.connection_status.emit("no_signal")
-                    else:
-                        self.connection_status.emit("reconnecting")
+                    health = self._stream_health.update(
+                        has_frame=False, is_opened=is_opened, now=now
+                    )
+                    self.connection_status.emit(_STREAM_STATUS_MAP[health])
                     time.sleep(0.2)
                     continue
 
-                self.connection_status.emit("connected")
+                health = self._stream_health.update(
+                    has_frame=True, is_opened=True, now=now
+                )
+                self.connection_status.emit(_STREAM_STATUS_MAP[health])
                 detections = self._detector.detect(frame)
                 present = self._presence_evaluator.update(detections)
                 self.presence_changed.emit(present)
@@ -116,7 +131,12 @@ class DetectionWorker(QObject):
     def _dispatch(self, event: TimerEvent) -> None:
         now_dt = datetime.now()
         if event.type in (TimerEventType.REMINDER_TRIGGERED, TimerEventType.REMINDER_REPEATED):
-            self.reminder_show.emit(self._reminder_context)
+            # FR-3：注入當下實際連續工作秒數，不再使用固定門檻值
+            snap = self._timer_engine.snapshot(self._clock())
+            ctx = dataclasses.replace(
+                self._reminder_context, work_elapsed_sec=snap.work_elapsed_sec
+            )
+            self.reminder_show.emit(ctx)
         elif event.type == TimerEventType.RETURN_PROMPT:
             self.return_prompt.emit(self._reminder_context)
         elif event.type == TimerEventType.WORK_STARTED:

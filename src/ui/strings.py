@@ -24,9 +24,11 @@ CONN_TEXT: dict[ConnectionState, str] = {
     ConnectionState.CONNECTED: "已連線",
     ConnectionState.RECONNECTING: "重新連線中",
     ConnectionState.NO_SIGNAL: "收不到影像",
+    ConnectionState.STREAM_ERROR: "影像異常",  # ★ 新增（FR-6）
     ConnectionState.ERROR: "發生錯誤",
 }
 CONN_NO_SIGNAL = "目前收不到影像。請確認攝影機或串流來源後再試一次。"
+CONN_STREAM_ERROR = "影像異常，畫面可能延遲或中斷。"  # ★ 新增（FR-6）
 CONN_RECONNECTING = "連線中斷，正在重新連線…"
 CONN_RETRY = "重試"
 CONN_ERROR_PREFIX = "錯誤："
@@ -53,7 +55,8 @@ def timer_state_text(state: TimerState) -> str:
 
 # Reminders
 REMIND_TITLE = "該休息一下了"
-REMIND_BODY = "你已連續工作 {minutes} 分鐘。"
+# FR-3: 改為 {duration}，由 format_duration_zh 提供動態時長
+REMIND_BODY = "你已連續工作 {duration}。"
 REMIND_START_REST = "開始休息"
 REMIND_ACK = "我知道了"
 REMIND_SNOOZE = "再 {minutes} 分鐘"

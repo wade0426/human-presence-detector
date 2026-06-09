@@ -57,3 +57,39 @@ def test_set_value_rejects_unsupported_key_depth() -> None:
         assert "Unsupported key depth" in str(exc)
     else:
         raise AssertionError("expected ValueError for nested key depth > 3")
+
+
+# ---------------------------------------------------------------------------
+# FR-1 tests: reminder.reminding_display_mode in schema
+# ---------------------------------------------------------------------------
+
+
+def test_schema_has_reminding_display_mode_field() -> None:
+    """SCHEMA must contain the reminder.reminding_display_mode entry."""
+    keys = [spec.key for spec in SCHEMA]
+    assert "reminder.reminding_display_mode" in keys
+
+
+def test_reminding_display_mode_choices() -> None:
+    """reminder.reminding_display_mode choices must be ('overtime', 'work_and_reminder')."""
+    from src.ui.settings_schema import WidgetKind
+
+    spec = next(
+        (s for s in SCHEMA if s.key == "reminder.reminding_display_mode"), None
+    )
+    assert spec is not None
+    assert spec.widget == WidgetKind.CHOICE
+    assert spec.choices == ("overtime", "work_and_reminder")
+
+
+def test_get_set_reminding_display_mode() -> None:
+    """get_value / set_value round-trip for reminder.reminding_display_mode."""
+    config = AppConfig()
+    original = get_value(config, "reminder.reminding_display_mode")
+    assert original == "overtime"
+
+    updated = set_value(config, "reminder.reminding_display_mode", "work_and_reminder")
+    assert get_value(updated, "reminder.reminding_display_mode") == "work_and_reminder"
+
+    restored = set_value(updated, "reminder.reminding_display_mode", original)
+    assert get_value(restored, "reminder.reminding_display_mode") == original

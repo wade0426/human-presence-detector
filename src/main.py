@@ -160,7 +160,8 @@ def main() -> int:
     def _on_about_to_quit() -> None:
         preview_timer.stop()
         grabber.stop()                                     # Req 8: join capture thread
-        _shutdown_worker_thread(worker, thread)
+        _shutdown_worker_thread(worker, thread)            # worker 執行緒 finally 關自己的連線
+        store.close()                                      # FR-5: 主執行緒關閉自己的 DB 連線
 
     app.aboutToQuit.connect(_on_about_to_quit)
 

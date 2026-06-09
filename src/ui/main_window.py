@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QVBoxLayout, QWidget
 from src.app.connection_state import ConnectionState, from_status
 from src.config import AppConfig, save_config
 from src.logging_store import TodaySummary
+from src.today_work_model import TodayWorkModel
 from src.types import BBox, Frame, TimerSnapshot
 from src.ui.settings_schema import set_value
 from src.ui.strings import CONN_ERROR_PREFIX, CONN_TEXT
@@ -45,6 +46,10 @@ class MainWindow(QMainWindow):
         self._store = store if store is not None else _FallbackStore()
         self._config_path = config_path
         self._work_threshold_sec = config.timer.work_threshold_min * 60.0
+        self._reminding_mode = config.reminder.reminding_display_mode  # FR-1
+        self._today_model = TodayWorkModel()                            # FR-4
+        self._rest_count: int = 0
+        self._last_snapshot: TimerSnapshot | None = None
 
         self.setWindowTitle("人體辨識休息提醒系統")
         self._build_ui()
@@ -52,9 +57,9 @@ class MainWindow(QMainWindow):
 
         self._summary_timer = QTimer(self)
         self._summary_timer.setInterval(30_000)
-        self._summary_timer.timeout.connect(self._refresh_summary)
+        self._summary_timer.timeout.connect(self._refresh_base)  # FR-4 保險刷新
         self._summary_timer.start()
-        self._refresh_summary()
+        self._refresh_base()  # FR-4 啟動時取一次 DB 基準
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -89,12 +94,23 @@ class MainWindow(QMainWindow):
         self._actions.open_settings.connect(self.request_settings)
         self._preview.roi_committed.connect(self._on_roi_committed)
 
-    def _refresh_summary(self) -> None:
+    def _refresh_base(self) -> None:
+        """從 DB 抓取最新今日統計基準（FR-4）。失敗時沿用上次顯示，不影響 UI。"""
         try:
             summary = self._store.today_summary()
-            self._summary.set_summary(summary)
+            self._today_model.set_base(summary.work_seconds)
+            self._rest_count = summary.rest_count
+            if self._last_snapshot is not None:
+                display = self._today_model.observe(self._last_snapshot).display_seconds
+            else:
+                display = summary.work_seconds
+            self._summary.set_today(display, self._rest_count)
         except Exception:
             pass
+
+    def _refresh_summary(self) -> None:
+        """向後相容保留，轉發至 _refresh_base。"""
+        self._refresh_base()
 
     def _on_roi_committed(self, roi: BBox) -> None:
         updated = set_value(self._config, "presence.roi", roi)
@@ -109,7 +125,15 @@ class MainWindow(QMainWindow):
         self._presence_badge.set_present(present)
 
     def on_timer_updated(self, snap: TimerSnapshot) -> None:
-        self._status.update_snapshot(snap, self._work_threshold_sec)
+        """每次計時器快照更新：即時更新今日統計與狀態列（FR-1, FR-4）。"""
+        self._last_snapshot = snap
+        result = self._today_model.observe(snap)
+        if result.base_refresh_needed:
+            # 工作剛結束，DB 應已寫入，重抓基準
+            self._refresh_base()
+            result = self._today_model.observe(snap)
+        self._summary.set_today(result.display_seconds, self._rest_count)
+        self._status.update_snapshot(snap, self._work_threshold_sec, self._reminding_mode)
 
     def on_connection_status(self, status: str) -> None:
         state = from_status(status)
@@ -118,6 +142,7 @@ class MainWindow(QMainWindow):
             ConnectionState.NO_SIGNAL,
             ConnectionState.RECONNECTING,
             ConnectionState.CONNECTING,
+            ConnectionState.STREAM_ERROR,
         ):
             self._preview.set_overlay_text(CONN_TEXT.get(state, ""))
             self._presence_badge.set_present(False)

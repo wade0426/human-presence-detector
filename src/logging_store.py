@@ -100,6 +100,14 @@ class SessionStore:
         )
 
     def close(self) -> None:
-        for connection in self._connections.values():
+        """僅關閉『呼叫端執行緒』自己建立的連線；其他執行緒連線不動。
+
+        維持 per-thread 連線架構的安全性（FR-5）：
+        - Worker 執行緒於 run() finally 呼叫 → 只關 worker 自己的連線
+        - UI 主執行緒於 aboutToQuit 呼叫 → 只關主執行緒自己的連線
+        - 兩者互不干涉，不會觸發跨執行緒 sqlite3.ProgrammingError
+        """
+        thread_id = threading.get_ident()
+        connection = self._connections.pop(thread_id, None)
+        if connection is not None:
             connection.close()
-        self._connections.clear()

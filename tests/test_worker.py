@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from datetime import datetime
 from typing import Any
 
@@ -89,6 +90,18 @@ class FakeStore:
     ) -> int:
         self.rows.append((kind, start_ts, end_ts, duration_sec, ended_by))
         return len(self.rows)
+
+    def close(self) -> None:
+        pass
+
+
+class CloseTrackingStore(FakeStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.close_thread_ids: list[int] = []
+
+    def close(self) -> None:
+        self.close_thread_ids.append(threading.get_ident())
 
 
 class ExplodingStore(FakeStore):
@@ -458,3 +471,17 @@ def test_worker_emits_failed_when_store_init_crashes(qtbot: pytest.QtBot) -> Non
     thread.join(timeout=1.0)
 
     assert blocker.args == ["boom"]
+
+
+def test_worker_closes_store_from_worker_thread() -> None:
+    store = CloseTrackingStore()
+    frames = FakeFrames([None], is_opened=False)
+    worker = _make_worker(frames, store=store)
+
+    thread = threading.Thread(target=worker.run, daemon=True)
+    thread.start()
+    time.sleep(0.05)
+    worker.stop()
+    thread.join(timeout=1.0)
+
+    assert store.close_thread_ids == [thread.ident]

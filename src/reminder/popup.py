@@ -6,6 +6,7 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QSoundEffect
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from src.duration_format import format_duration_zh
 from src.reminder.media import is_playable_video, load_pixmap, safe_sound_url
 from src.types import ReminderContext
 from src.ui import strings
@@ -45,7 +46,9 @@ class PopupReminder(QDialog):
         if ctx is None:
             super().show()
             return
-        self.message_label.setText(strings.REMIND_BODY.format(minutes=ctx.work_minutes))
+        self.message_label.setText(
+            strings.REMIND_BODY.format(duration=format_duration_zh(ctx.work_elapsed_sec))
+        )
         # Ensure single button text is always "開始休息"
         self.dismiss_button.setText(strings.REMIND_START_REST)
         if ctx.media_type == "video" and is_playable_video(ctx.media_path):

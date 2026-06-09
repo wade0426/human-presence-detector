@@ -21,6 +21,17 @@ class FakeSummaryStore:
         return self._summary
 
 
+class SequenceSummaryStore:
+    def __init__(self, summaries: list[TodaySummary]) -> None:
+        self._summaries = list(summaries)
+        self.calls = 0
+
+    def today_summary(self) -> TodaySummary:
+        index = min(self.calls, len(self._summaries) - 1)
+        self.calls += 1
+        return self._summaries[index]
+
+
 def test_main_window_can_be_created(qtbot: pytest.QtBot, tmp_path: object) -> None:
     from src.ui.main_window import MainWindow
 
@@ -398,3 +409,234 @@ def test_preview_view_edit_mode_false_hides_hint(qtbot: pytest.QtBot) -> None:
     view.set_edit_mode(False)
 
     assert view._label.text() == ""
+
+
+# ---------------------------------------------------------------------------
+# 批次 4 Tests — StatusStrip FR-1/FR-2 & TodaySummaryView FR-4
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.qt
+def test_status_strip_working_format_clock(qtbot: pytest.QtBot) -> None:
+    """WORKING 狀態：顯示 format_clock(work_elapsed_sec)（FR-1）。"""
+    from src.ui.widgets.status_strip import StatusStrip
+
+    strip = StatusStrip()
+    qtbot.addWidget(strip)
+    snapshot = TimerSnapshot(
+        state=TimerState.WORKING,
+        work_elapsed_sec=90.0,
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=2610.0,
+        reminder_active=False,
+    )
+    strip.update_snapshot(snapshot, work_threshold_sec=2700.0)
+
+    assert "工作中" in strip._state_label.text()
+    assert "01:30" in strip._time_label.text()
+
+
+@pytest.mark.qt
+def test_status_strip_reminding_overtime_mode(qtbot: pytest.QtBot) -> None:
+    """REMINDING + reminding_mode='overtime' → 顯示「超時 MM:SS」（FR-1）。"""
+    from src.ui.widgets.status_strip import StatusStrip
+
+    strip = StatusStrip()
+    qtbot.addWidget(strip)
+    snapshot = TimerSnapshot(
+        state=TimerState.REMINDING,
+        work_elapsed_sec=2760.0,  # 2700 + 60
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=0.0,
+        reminder_active=True,
+        overtime_sec=60.0,
+    )
+    strip.update_snapshot(snapshot, work_threshold_sec=2700.0, reminding_mode="overtime")
+
+    assert "超時" in strip._time_label.text()
+    assert "01:00" in strip._time_label.text()
+
+
+@pytest.mark.qt
+def test_status_strip_reminding_work_and_reminder_mode(qtbot: pytest.QtBot) -> None:
+    """REMINDING + reminding_mode='work_and_reminder' → 含工作時間與提醒持續時間（FR-1）。"""
+    from src.ui.widgets.status_strip import StatusStrip
+
+    strip = StatusStrip()
+    qtbot.addWidget(strip)
+    snapshot = TimerSnapshot(
+        state=TimerState.REMINDING,
+        work_elapsed_sec=2760.0,
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=0.0,
+        reminder_active=True,
+        overtime_sec=60.0,
+    )
+    strip.update_snapshot(
+        snapshot, work_threshold_sec=2700.0, reminding_mode="work_and_reminder"
+    )
+
+    text = strip._time_label.text()
+    assert "工作" in text
+    assert "提醒" in text
+
+
+@pytest.mark.qt
+def test_status_strip_suspended_from_reminding_frozen(qtbot: pytest.QtBot) -> None:
+    """SUSPENDED（reminder_active=True）：數字凍結不跳變（FR-2）。"""
+    from src.ui.widgets.status_strip import StatusStrip
+
+    strip = StatusStrip()
+    qtbot.addWidget(strip)
+    snapshot = TimerSnapshot(
+        state=TimerState.SUSPENDED,
+        work_elapsed_sec=2760.0,
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=0.0,
+        reminder_active=True,
+        overtime_sec=60.0,
+    )
+    strip.update_snapshot(snapshot, work_threshold_sec=2700.0, reminding_mode="overtime")
+
+    assert "已暫停" in strip._state_label.text()
+    assert "超時" in strip._time_label.text()
+
+    # 連續多次呼叫，overtime_sec 不變 → 數字不跳
+    text_first = strip._time_label.text()
+    strip.update_snapshot(snapshot, work_threshold_sec=2700.0, reminding_mode="overtime")
+    assert strip._time_label.text() == text_first
+
+
+@pytest.mark.qt
+def test_today_summary_view_set_today_empty(qtbot: pytest.QtBot) -> None:
+    """set_today(0, 0) → 顯示 TODAY_EMPTY（FR-4）。"""
+    from src.ui.strings import TODAY_EMPTY
+    from src.ui.widgets.today_summary_view import TodaySummaryView
+
+    view = TodaySummaryView()
+    qtbot.addWidget(view)
+    view.set_today(0, 0)
+
+    assert TODAY_EMPTY in view._work_label.text()
+    assert view._rest_label.text() == ""
+
+
+@pytest.mark.qt
+def test_today_summary_view_set_today_with_data(qtbot: pytest.QtBot) -> None:
+    """set_today(90, 2) → 顯示「1 分 30 秒」及休息次數（FR-4）。"""
+    from src.ui.widgets.today_summary_view import TodaySummaryView
+
+    view = TodaySummaryView()
+    qtbot.addWidget(view)
+    view.set_today(90, 2)
+
+    assert "1 分 30 秒" in view._work_label.text()
+    assert "2" in view._rest_label.text()
+
+
+@pytest.mark.qt
+def test_today_summary_view_set_today_seconds_only(qtbot: pytest.QtBot) -> None:
+    """set_today(30, 0) → 顯示「30 秒」（FR-4）。"""
+    from src.ui.widgets.today_summary_view import TodaySummaryView
+
+    view = TodaySummaryView()
+    qtbot.addWidget(view)
+    view.set_today(30, 0)
+
+    assert "30 秒" in view._work_label.text()
+
+
+@pytest.mark.qt
+def test_main_window_today_work_updates_with_working_snapshots(
+    qtbot: pytest.QtBot, tmp_path: object
+) -> None:
+    from src.ui.main_window import MainWindow
+
+    window = MainWindow(
+        AppConfig(),
+        store=FakeSummaryStore(TodaySummary(600, 1, 1)),
+        config_path=str(tmp_path / "cfg.yaml"),
+    )
+    qtbot.addWidget(window)
+
+    first = TimerSnapshot(
+        state=TimerState.WORKING,
+        work_elapsed_sec=30.0,
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=2670.0,
+        reminder_active=False,
+    )
+    second = TimerSnapshot(
+        state=TimerState.WORKING,
+        work_elapsed_sec=60.0,
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=2640.0,
+        reminder_active=False,
+    )
+
+    window.on_timer_updated(first)
+    first_text = window._summary._work_label.text()
+    window.on_timer_updated(second)
+    second_text = window._summary._work_label.text()
+
+    assert "10 分 30 秒" in first_text
+    assert "11 分鐘" in second_text
+
+
+@pytest.mark.qt
+def test_main_window_refreshes_base_once_when_work_session_ends(
+    qtbot: pytest.QtBot, tmp_path: object
+) -> None:
+    from src.ui.main_window import MainWindow
+
+    store = SequenceSummaryStore([TodaySummary(600, 1, 1), TodaySummary(660, 1, 2)])
+    window = MainWindow(
+        AppConfig(),
+        store=store,
+        config_path=str(tmp_path / "cfg.yaml"),
+    )
+    qtbot.addWidget(window)
+
+    active = TimerSnapshot(
+        state=TimerState.WORKING,
+        work_elapsed_sec=60.0,
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=2640.0,
+        reminder_active=False,
+    )
+    ended = TimerSnapshot(
+        state=TimerState.RESTING,
+        work_elapsed_sec=0.0,
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=0.0,
+        reminder_active=False,
+        rest_remaining_sec=120.0,
+    )
+
+    window.on_timer_updated(active)
+    calls_before_end = store.calls
+    window.on_timer_updated(ended)
+
+    assert store.calls == calls_before_end + 1
+    assert "11 分鐘" in window._summary._work_label.text()
+
+
+@pytest.mark.qt
+def test_main_window_stream_error_shows_overlay_and_clears_presence(
+    qtbot: pytest.QtBot, tmp_path: object
+) -> None:
+    from src.ui.main_window import MainWindow
+
+    window = MainWindow(
+        AppConfig(),
+        config_path=str(tmp_path / "cfg.yaml"),
+    )
+    qtbot.addWidget(window)
+
+    window.on_presence_changed(True)
+    assert window._presence_badge._text_label.text() == "有人"
+
+    window.on_connection_status("stream_error")
+
+    assert window._presence_badge._text_label.text() == "無人"
+    assert window._preview._label.text() == "影像異常"

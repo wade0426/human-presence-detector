@@ -25,8 +25,9 @@ def test_connection_state_text_reads_from_connection_mapping() -> None:
 
 
 def test_remind_body_format() -> None:
-    result = strings.REMIND_BODY.format(minutes=30)
-    assert "30" in result
+    # FR-3: REMIND_BODY 改用 {duration} 格式（由 format_duration_zh 提供）
+    result = strings.REMIND_BODY.format(duration="30 秒")
+    assert "30 秒" in result
 
 
 def test_remind_snooze_format() -> None:
