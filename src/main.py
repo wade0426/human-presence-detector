@@ -118,9 +118,9 @@ def main() -> int:
     worker.return_prompt.connect(return_prompt_dialog.show_prompt)         # Req 3
     if hasattr(reminder, "start_rest"):
         # PopupReminder only: wire start_rest → worker.start_rest (Req 4)
-        reminder.start_rest.connect(worker.request_start_rest)
-    return_prompt_dialog.confirmed.connect(worker.request_confirm_return)  # Req 3
-    window.roi_changed.connect(worker.request_set_roi)
+        reminder.start_rest.connect(lambda: worker.request_start_rest())
+    return_prompt_dialog.confirmed.connect(lambda: worker.request_confirm_return())  # Req 3
+    window.roi_changed.connect(lambda roi: worker.request_set_roi(roi))
 
     paused = False
 
