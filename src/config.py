@@ -8,6 +8,9 @@ import yaml
 
 from src.types import BBox, ResetMode
 
+MINUTE_MIN: float = 0.1
+MINUTE_MAX: float = 9999.0
+
 
 @dataclass
 class SourceConfig:
@@ -115,8 +118,11 @@ def validate(raw: dict[str, Any]) -> list[str]:
 
     timer = _section(raw, "timer")
     for key in ("work_threshold_min", "reset_threshold_min", "required_rest_min"):
-        if not _greater_than_zero(timer.get(key, getattr(TimerConfig, key))):
-            errors.append(f"timer.{key} must be > 0")
+        value = timer.get(key, getattr(TimerConfig, key))
+        if not _in_range(value, min_value=MINUTE_MIN, max_value=MINUTE_MAX):
+            errors.append(
+                f"timer.{key} must satisfy {MINUTE_MIN} <= value <= {MINUTE_MAX}"
+            )
 
     reminder = _section(raw, "reminder")
     method = reminder.get("method", ReminderConfig.method)
@@ -128,6 +134,13 @@ def validate(raw: dict[str, Any]) -> list[str]:
         ResetMode(str(reset_mode))
     except ValueError:
         errors.append("reminder.reset_mode must be a valid ResetMode value")
+
+    for key in ("repeat_interval_min", "snooze_min"):
+        value = reminder.get(key, getattr(ReminderConfig, key))
+        if not _in_range(value, min_value=MINUTE_MIN, max_value=MINUTE_MAX):
+            errors.append(
+                f"reminder.{key} must satisfy {MINUTE_MIN} <= value <= {MINUTE_MAX}"
+            )
 
     popup = _section(reminder, "popup")
     media_type = popup.get("media_type", PopupConfig.media_type)

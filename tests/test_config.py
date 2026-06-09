@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
-from src.config import AppConfig, load_config, save_config, validate
+from src.config import MINUTE_MAX, MINUTE_MIN, AppConfig, load_config, save_config, validate
 from src.types import BBox, ResetMode
 
 
@@ -61,3 +62,47 @@ def test_save_then_load_round_trip(tmp_path: Path) -> None:
     reloaded = load_config(str(path))
 
     assert reloaded == config
+
+
+@pytest.mark.parametrize(
+    ("section", "key"),
+    [
+        ("timer", "work_threshold_min"),
+        ("timer", "reset_threshold_min"),
+        ("timer", "required_rest_min"),
+        ("reminder", "repeat_interval_min"),
+        ("reminder", "snooze_min"),
+    ],
+)
+def test_validate_minute_fields(section: str, key: str) -> None:
+    def make(value: object) -> dict[str, object]:
+        base: dict[str, object] = {
+            "source": {"type": "webcam"},
+            "timer": {
+                "work_threshold_min": 1.0,
+                "reset_threshold_min": 1.0,
+                "required_rest_min": 1.0,
+            },
+            "reminder": {"repeat_interval_min": 1.0, "snooze_min": 1.0},
+        }
+        target = base[section]
+        assert isinstance(target, dict)
+        target[key] = value
+        return base
+
+    field_name = f"{section}.{key}"
+
+    low_errors = validate(make(MINUTE_MIN - 0.01))
+    assert any(field_name in error for error in low_errors)
+
+    min_errors = validate(make(MINUTE_MIN))
+    assert not any(field_name in error for error in min_errors)
+
+    max_errors = validate(make(MINUTE_MAX))
+    assert not any(field_name in error for error in max_errors)
+
+    high_errors = validate(make(MINUTE_MAX + 0.1))
+    assert any(field_name in error for error in high_errors)
+
+    type_errors = validate(make("abc"))
+    assert any(field_name in error for error in type_errors)
