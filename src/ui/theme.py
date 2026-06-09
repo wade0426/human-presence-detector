@@ -110,6 +110,19 @@ QProgressBar::chunk {{
     background-color: {tokens.accent};
     border-radius: 3px;
 }}
+QPushButton:checked {{
+    background-color: {tokens.accent};
+    border: 2px solid {tokens.border};
+    font-weight: bold;
+}}
+QPushButton[role="danger"] {{
+    background-color: {tokens.danger};
+    color: #FFFFFF;
+}}
+QPushButton[role="danger"]:hover {{
+    background-color: {tokens.danger};
+    opacity: 0.85;
+}}
 """
 
 

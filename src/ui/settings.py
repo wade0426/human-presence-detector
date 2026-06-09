@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
 
 from src import config as config_module
 from src.config import AppConfig, save_config, validate
-from src.types import ResetMode
 from src.ui import strings
 from src.ui.settings_schema import (
     CATEGORIES,
@@ -191,8 +190,6 @@ class SettingsWindow(QDialog):
                 continue
 
             value = get_value(self._config, spec.key)
-            if isinstance(value, ResetMode):
-                value = value.value
             self._set_widget_value(widget, value)
 
     def _set_widget_value(self, widget: object, value: object) -> None:
@@ -258,8 +255,6 @@ class SettingsWindow(QDialog):
             return widget.value()
         if isinstance(widget, QComboBox):
             value = widget.currentText()
-            if spec.key == "reminder.reset_mode":
-                return ResetMode(value)
             return value
         if isinstance(widget, QCheckBox):
             return widget.isChecked()

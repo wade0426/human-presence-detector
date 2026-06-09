@@ -228,3 +228,173 @@ def test_preview_view_no_roi_in_non_edit_mode(qtbot: pytest.QtBot) -> None:
     qtbot.mouseRelease(view, Qt.MouseButton.LeftButton, pos=QPoint(100, 100))
 
     assert len(signals) == 0
+
+
+# ---------------------------------------------------------------------------
+# M5 Tests — PresenceBadge & StatusStrip new states
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.qt
+def test_presence_badge_set_present_true(qtbot: pytest.QtBot) -> None:
+    """PresenceBadge.set_present(True) → text shows '有人'."""
+    from src.ui.widgets.presence_badge import PresenceBadge
+
+    badge = PresenceBadge()
+    qtbot.addWidget(badge)
+    badge.set_present(True)
+
+    assert badge._text_label.text() == "有人"
+
+
+@pytest.mark.qt
+def test_presence_badge_set_present_false(qtbot: pytest.QtBot) -> None:
+    """PresenceBadge.set_present(False) → text shows '無人'."""
+    from src.ui.widgets.presence_badge import PresenceBadge
+
+    badge = PresenceBadge()
+    qtbot.addWidget(badge)
+    badge.set_present(False)
+
+    assert badge._text_label.text() == "無人"
+
+
+@pytest.mark.qt
+def test_status_strip_resting_state(qtbot: pytest.QtBot) -> None:
+    """StatusStrip.update_snapshot with RESTING state shows '休息中'."""
+    from src.ui.widgets.status_strip import StatusStrip
+
+    strip = StatusStrip()
+    qtbot.addWidget(strip)
+    snapshot = TimerSnapshot(
+        state=TimerState.RESTING,
+        work_elapsed_sec=0.0,
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=0.0,
+        reminder_active=False,
+        rest_remaining_sec=120.0,
+        rest_elapsed_sec=0.0,
+    )
+    strip.update_snapshot(snapshot, work_threshold_sec=2700.0)
+
+    assert strip._state_label.text() == "休息中"
+
+
+@pytest.mark.qt
+def test_status_strip_suspended_state(qtbot: pytest.QtBot) -> None:
+    """StatusStrip.update_snapshot with SUSPENDED state shows '已暫停'."""
+    from src.ui.widgets.status_strip import StatusStrip
+
+    strip = StatusStrip()
+    qtbot.addWidget(strip)
+    snapshot = TimerSnapshot(
+        state=TimerState.SUSPENDED,
+        work_elapsed_sec=60.0,
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=2640.0,
+        reminder_active=False,
+    )
+    strip.update_snapshot(snapshot, work_threshold_sec=2700.0)
+
+    assert strip._state_label.text() == "已暫停"
+
+
+@pytest.mark.qt
+def test_presence_badge_away_vs_suspended_distinguishable(qtbot: pytest.QtBot) -> None:
+    """AWAY shows '短暫離開' and SUSPENDED shows '已暫停' (distinguishable)."""
+    from src.ui.strings import STATE_TEXT
+
+    assert STATE_TEXT[TimerState.AWAY] == "短暫離開"
+    assert STATE_TEXT[TimerState.SUSPENDED] == "已暫停"
+    assert STATE_TEXT[TimerState.AWAY] != STATE_TEXT[TimerState.SUSPENDED]
+
+
+@pytest.mark.qt
+def test_main_window_on_connection_status_no_signal_resets_presence(
+    qtbot: pytest.QtBot, tmp_path: object
+) -> None:
+    """on_connection_status('no_signal') → PresenceBadge shows '無人'."""
+    from src.ui.main_window import MainWindow
+
+    window = MainWindow(
+        AppConfig(),
+        config_path=str(tmp_path / "cfg.yaml"),
+    )
+    qtbot.addWidget(window)
+
+    # First set present
+    window.on_presence_changed(True)
+    assert window._presence_badge._text_label.text() == "有人"
+
+    # Then simulate connection loss
+    window.on_connection_status("no_signal")
+    assert window._presence_badge._text_label.text() == "無人"
+
+
+# ---------------------------------------------------------------------------
+# M6 Tests — ActionBar quit button, ROI edit toggle, PreviewView hint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.qt
+def test_action_bar_roi_toggle_true_shows_active_text(qtbot: pytest.QtBot) -> None:
+    """ROI button toggled(True) → text changes to '完成編輯', isChecked()==True."""
+    from src.ui.widgets.action_bar import ActionBar
+
+    bar = ActionBar()
+    qtbot.addWidget(bar)
+    bar._roi_btn.setChecked(True)
+
+    assert bar._roi_btn.text() == "完成編輯"
+    assert bar._roi_btn.isChecked() is True
+
+
+@pytest.mark.qt
+def test_action_bar_roi_toggle_false_restores_original_text(qtbot: pytest.QtBot) -> None:
+    """ROI button toggled(False) → text restores to '編輯 ROI'."""
+    from src.ui.widgets.action_bar import ActionBar
+
+    bar = ActionBar()
+    qtbot.addWidget(bar)
+    bar._roi_btn.setChecked(True)
+    bar._roi_btn.setChecked(False)
+
+    assert bar._roi_btn.text() == "編輯 ROI"
+
+
+@pytest.mark.qt
+def test_action_bar_quit_button_emits_request_quit(qtbot: pytest.QtBot) -> None:
+    """Clicking quit button → request_quit signal is emitted."""
+    from src.ui.widgets.action_bar import ActionBar
+
+    bar = ActionBar()
+    qtbot.addWidget(bar)
+
+    with qtbot.waitSignal(bar.request_quit, timeout=1000):
+        bar._quit_btn.click()
+
+
+@pytest.mark.qt
+def test_preview_view_edit_mode_shows_hint(qtbot: pytest.QtBot) -> None:
+    """set_edit_mode(True) → hint text label is visible with ROI_HINT text."""
+    from src.ui.strings import ROI_HINT
+    from src.ui.widgets.preview_view import PreviewView
+
+    view = PreviewView()
+    qtbot.addWidget(view)
+    view.set_edit_mode(True)
+
+    assert view._label.text() == ROI_HINT
+
+
+@pytest.mark.qt
+def test_preview_view_edit_mode_false_hides_hint(qtbot: pytest.QtBot) -> None:
+    """set_edit_mode(False) → hint text label is cleared."""
+    from src.ui.widgets.preview_view import PreviewView
+
+    view = PreviewView()
+    qtbot.addWidget(view)
+    view.set_edit_mode(True)
+    view.set_edit_mode(False)
+
+    assert view._label.text() == ""

@@ -35,22 +35,26 @@ class Frame:
 class TimerState(Enum):
     IDLE = "idle"
     WORKING = "working"
-    PAUSED = "paused"
+    AWAY = "away"
     REMINDING = "reminding"
+    RESTING = "resting"
+    AWAITING_RETURN = "awaiting_return"
+    SUSPENDED = "suspended"
 
 
-class ResetMode(Enum):
-    DETECTION = "detection"
-    DISMISS = "dismiss"
-    SNOOZE = "snooze"
+class RestCountMode(Enum):
+    PRESENCE = "presence"
+    FIXED = "fixed"
 
 
 class TimerEventType(Enum):
     WORK_STARTED = "work_started"
     WORK_ENDED = "work_ended"
+    REST_STARTED = "rest_started"
     REST_ENDED = "rest_ended"
     REMINDER_TRIGGERED = "reminder_triggered"
     REMINDER_REPEATED = "reminder_repeated"
+    RETURN_PROMPT = "return_prompt"
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,8 @@ class TimerSnapshot:
     away_elapsed_sec: float
     remaining_to_reminder_sec: float
     reminder_active: bool
+    rest_remaining_sec: float = 0.0
+    rest_elapsed_sec: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -76,5 +82,3 @@ class ReminderContext:
     media_path: str
     media_type: str
     sound_path: str
-    reset_mode: str = "detection"
-    snooze_minutes: int = 5

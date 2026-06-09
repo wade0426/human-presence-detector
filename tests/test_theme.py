@@ -25,3 +25,11 @@ def test_build_qss_contains_role_selectors() -> None:
 
     assert '[role="danger"]' in qss
     assert '[role="secondary"]' in qss
+
+
+def test_build_qss_contains_checked_and_danger_button_rules() -> None:
+    """M6: build_qss must include QPushButton:checked and QPushButton[role='danger']."""
+    qss = build_qss(LIGHT_TOKENS)
+
+    assert "QPushButton:checked" in qss
+    assert 'QPushButton[role="danger"]' in qss

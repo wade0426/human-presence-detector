@@ -55,6 +55,7 @@ class RTSPSource:
 
     def open(self) -> None:
         self._cap = cv2.VideoCapture(self._url, cv2.CAP_FFMPEG)
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
     def read(self) -> Frame | None:
         if self._cap is None:

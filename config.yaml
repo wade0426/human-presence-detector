@@ -10,21 +10,20 @@ detection:
   device: auto
 presence:
   roi:
-  - 0.2845360824742268
-  - 0.11572700296735905
-  - 0.4350515463917526
-  - 0.7774480712166172
+  - 0.23703703703703705
+  - 0.01809954751131222
+  - 0.6123456790123457
+  - 0.9819004524886877
   min_box_height_ratio: 0.25
   debounce_count: 3
 timer:
   work_threshold_min: 0.5
   reset_threshold_min: 0.5
   required_rest_min: 0.5
+  rest_count_mode: presence
 reminder:
   method: popup
-  reset_mode: detection
   repeat_interval_min: 2.0
-  snooze_min: 5.0
   popup:
     media_path: data/assets/rest_placeholder.png
     media_type: image

@@ -63,14 +63,14 @@ def test_popup_reminder_show_image_does_not_crash(qtbot: pytest.QtBot) -> None:
     reminder.hide()
 
 
-def test_popup_reminder_emits_dismissed_when_button_clicked(qtbot: pytest.QtBot) -> None:
+def test_popup_reminder_emits_start_rest_when_button_clicked(qtbot: pytest.QtBot) -> None:
     from src.reminder.popup import PopupReminder
 
     reminder = PopupReminder()
     qtbot.addWidget(reminder)
     reminder.show(_image_context())
 
-    with qtbot.waitSignal(reminder.dismissed, timeout=3000):
+    with qtbot.waitSignal(reminder.start_rest, timeout=3000):
         qtbot.mouseClick(reminder.dismiss_button, Qt.MouseButton.LeftButton)
 
 
@@ -97,27 +97,6 @@ def test_safe_sound_url_empty_returns_none() -> None:
     assert safe_sound_url("nonexistent.wav") is None
 
 
-def test_popup_snooze_mode_shows_snooze_button(qtbot: pytest.QtBot) -> None:
-    from PySide6.QtWidgets import QPushButton
-
-    from src.reminder.popup import PopupReminder
-
-    context = ReminderContext(
-        work_minutes=30,
-        media_path="",
-        media_type="image",
-        sound_path="",
-        reset_mode="snooze",
-        snooze_minutes=5,
-    )
-    reminder = PopupReminder()
-    qtbot.addWidget(reminder)
-
-    reminder.show(context)
-
-    texts = [button.text() for button in reminder.findChildren(QPushButton)]
-    assert any("5" in text for text in texts)
-
 
 def test_floating_reminder_emits_dismissed_on_click(qtbot: pytest.QtBot) -> None:
     from src.reminder.floating import FloatingReminder
@@ -128,3 +107,80 @@ def test_floating_reminder_emits_dismissed_on_click(qtbot: pytest.QtBot) -> None
 
     with qtbot.waitSignal(reminder.dismissed, timeout=3000):
         qtbot.mouseClick(reminder, Qt.MouseButton.LeftButton)
+
+
+# ---------------------------------------------------------------------------
+# M7 Tests — PopupReminder single button, ReturnPromptDialog
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.qt
+def test_popup_reminder_has_single_action_button(qtbot: pytest.QtBot) -> None:
+    """PopupReminder must have exactly one action button with text '\u958b\u59cb\u4f11\u606f'."""
+    from src.reminder.popup import PopupReminder
+    from src.ui.strings import REMIND_START_REST
+
+    reminder = PopupReminder()
+    qtbot.addWidget(reminder)
+
+    assert reminder.dismiss_button.text() == REMIND_START_REST
+    # Must NOT have a close_button attribute
+    assert not hasattr(reminder, "close_button")
+
+
+@pytest.mark.qt
+def test_popup_reminder_start_rest_signal_and_hide_on_button_click(qtbot: pytest.QtBot) -> None:
+    """Click '\u958b\u59cb\u4f11\u606f' → emits start_rest signal and hides window."""
+    from src.reminder.popup import PopupReminder
+
+    reminder = PopupReminder()
+    qtbot.addWidget(reminder)
+    reminder.show(_image_context())
+    assert reminder.isVisible()
+
+    with qtbot.waitSignal(reminder.start_rest, timeout=3000):
+        qtbot.mouseClick(reminder.dismiss_button, Qt.MouseButton.LeftButton)
+
+    assert not reminder.isVisible()
+
+
+@pytest.mark.qt
+def test_return_prompt_dialog_confirmed_signal(qtbot: pytest.QtBot) -> None:
+    """Click '\u958b\u59cb\u65b0\u4e00\u8f2a' → emits confirmed signal."""
+    from src.reminder.return_prompt import ReturnPromptDialog
+
+    dialog = ReturnPromptDialog()
+    qtbot.addWidget(dialog)
+    dialog.show_prompt()
+
+    with qtbot.waitSignal(dialog.confirmed, timeout=3000):
+        qtbot.mouseClick(dialog._confirm_btn, Qt.MouseButton.LeftButton)
+
+
+@pytest.mark.qt
+def test_return_prompt_dialog_cannot_be_closed(qtbot: pytest.QtBot) -> None:
+    """ReturnPromptDialog.close() must keep the dialog visible (closeEvent ignored)."""
+    from src.reminder.return_prompt import ReturnPromptDialog
+
+    dialog = ReturnPromptDialog()
+    qtbot.addWidget(dialog)
+    dialog.show_prompt()
+    assert dialog.isVisible()
+
+    dialog.close()
+
+    assert dialog.isVisible()
+
+
+@pytest.mark.qt
+def test_popup_reminder_show_with_no_reset_mode_context(qtbot: pytest.QtBot) -> None:
+    """ReminderContext without reset_mode/snooze_minutes can call show() without error."""
+    from src.reminder.popup import PopupReminder
+
+    reminder = PopupReminder()
+    qtbot.addWidget(reminder)
+
+    ctx = ReminderContext(work_minutes=30, media_path="", media_type="image", sound_path="")
+    # Should not raise
+    reminder.show(ctx)
+    reminder.hide()

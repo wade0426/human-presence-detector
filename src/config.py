@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from src.types import BBox, ResetMode
+from src.types import BBox
 
 MINUTE_MIN: float = 0.1
 MINUTE_MAX: float = 9999.0
@@ -40,6 +40,7 @@ class TimerConfig:
     work_threshold_min: float = 45.0
     reset_threshold_min: float = 5.0
     required_rest_min: float = 5.0
+    rest_count_mode: str = "presence"
 
 
 @dataclass
@@ -57,9 +58,7 @@ class FloatingConfig:
 @dataclass
 class ReminderConfig:
     method: str = "popup"
-    reset_mode: ResetMode = ResetMode.DETECTION
     repeat_interval_min: float = 2.0
-    snooze_min: float = 5.0
     popup: PopupConfig = field(default_factory=PopupConfig)
     floating: FloatingConfig = field(default_factory=FloatingConfig)
 
@@ -123,19 +122,16 @@ def validate(raw: dict[str, Any]) -> list[str]:
             errors.append(
                 f"timer.{key} must satisfy {MINUTE_MIN} <= value <= {MINUTE_MAX}"
             )
+    rest_count_mode = timer.get("rest_count_mode", TimerConfig.rest_count_mode)
+    if rest_count_mode not in {"presence", "fixed"}:
+        errors.append("timer.rest_count_mode must be one of: presence, fixed")
 
     reminder = _section(raw, "reminder")
     method = reminder.get("method", ReminderConfig.method)
     if method not in {"popup", "toast", "floating"}:
         errors.append("reminder.method must be one of: popup, toast, floating")
 
-    reset_mode = reminder.get("reset_mode", ReminderConfig.reset_mode.value)
-    try:
-        ResetMode(str(reset_mode))
-    except ValueError:
-        errors.append("reminder.reset_mode must be a valid ResetMode value")
-
-    for key in ("repeat_interval_min", "snooze_min"):
+    for key in ("repeat_interval_min",):
         value = reminder.get(key, getattr(ReminderConfig, key))
         if not _in_range(value, min_value=MINUTE_MIN, max_value=MINUTE_MAX):
             errors.append(
@@ -243,18 +239,17 @@ def _app_config_from_dict(raw: dict[str, Any]) -> AppConfig:
             required_rest_min=float(
                 timer_raw.get("required_rest_min", TimerConfig.required_rest_min)
             ),
+            rest_count_mode=str(
+                timer_raw.get("rest_count_mode", TimerConfig.rest_count_mode)
+            ),
         ),
         reminder=ReminderConfig(
             method=str(reminder_raw.get("method", ReminderConfig.method)),
-            reset_mode=ResetMode(
-                str(reminder_raw.get("reset_mode", ReminderConfig.reset_mode.value))
-            ),
             repeat_interval_min=float(
                 reminder_raw.get(
                     "repeat_interval_min", ReminderConfig.repeat_interval_min
                 )
             ),
-            snooze_min=float(reminder_raw.get("snooze_min", ReminderConfig.snooze_min)),
             popup=PopupConfig(
                 media_path=str(popup_raw.get("media_path", PopupConfig.media_path)),
                 media_type=str(popup_raw.get("media_type", PopupConfig.media_type)),
@@ -289,5 +284,4 @@ def _serialize_app_config(config: AppConfig) -> dict[str, Any]:
         config.presence.roi.w,
         config.presence.roi.h,
     ]
-    payload["reminder"]["reset_mode"] = config.reminder.reset_mode.value
     return payload

@@ -7,21 +7,21 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Signal
 
+from src.capture.frame_grabber import FrameProvider
 from src.types import BBox, ReminderContext, TimerEvent, TimerEventType
 
 
 class DetectionWorker(QObject):
-    frame_ready = Signal(object)
     presence_changed = Signal(bool)
     timer_updated = Signal(object)
     reminder_show = Signal(object)
-    reminder_repeat = Signal(object)
+    return_prompt = Signal(object)
     connection_status = Signal(str)
     failed = Signal(str)
 
     def __init__(
         self,
-        source: Any,
+        frames: FrameProvider,
         detector: Any,
         presence_evaluator: Any,
         timer_engine: Any,
@@ -31,7 +31,7 @@ class DetectionWorker(QObject):
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         super().__init__()
-        self._source = source
+        self._frames = frames
         self._detector = detector
         self._presence_evaluator = presence_evaluator
         self._timer_engine = timer_engine
@@ -53,9 +53,9 @@ class DetectionWorker(QObject):
                     continue
 
                 loop_start = self._clock()
-                frame = self._source.read()
+                frame = self._frames.latest()
                 if frame is None:
-                    is_opened = getattr(self._source, "is_opened", False)
+                    is_opened = self._frames.is_opened
                     if is_opened:
                         self.connection_status.emit("no_signal")
                     else:
@@ -64,7 +64,6 @@ class DetectionWorker(QObject):
                     continue
 
                 self.connection_status.emit("connected")
-                self.frame_ready.emit(frame)
                 detections = self._detector.detect(frame)
                 present = self._presence_evaluator.update(detections)
                 self.presence_changed.emit(present)
@@ -87,29 +86,39 @@ class DetectionWorker(QObject):
 
     def stop(self) -> None:
         self._stop = True
-        release = getattr(self._source, "release", None)
-        if callable(release):
-            release()
 
     def pause(self) -> None:
+        now = self._clock()
         self._paused = True
+        self._timer_engine.pause(now)
+        self.timer_updated.emit(self._timer_engine.snapshot(now))
 
     def resume(self) -> None:
+        now = self._clock()
+        self._timer_engine.resume(now)
         self._paused = False
 
-    def dismiss_reminder(self) -> None:
-        for event in self._timer_engine.on_reminder_dismissed(self._clock()):
+    def start_rest(self) -> None:
+        now = self._clock()
+        for event in self._timer_engine.start_rest(now):
             self._dispatch(event)
+        self.timer_updated.emit(self._timer_engine.snapshot(now))
+
+    def confirm_return(self) -> None:
+        now = self._clock()
+        for event in self._timer_engine.confirm_return(now):
+            self._dispatch(event)
+        self.timer_updated.emit(self._timer_engine.snapshot(now))
 
     def set_roi(self, roi: BBox) -> None:
         self._presence_evaluator.set_roi(roi)
 
     def _dispatch(self, event: TimerEvent) -> None:
         now_dt = datetime.now()
-        if event.type == TimerEventType.REMINDER_TRIGGERED:
+        if event.type in (TimerEventType.REMINDER_TRIGGERED, TimerEventType.REMINDER_REPEATED):
             self.reminder_show.emit(self._reminder_context)
-        elif event.type == TimerEventType.REMINDER_REPEATED:
-            self.reminder_repeat.emit(self._reminder_context)
+        elif event.type == TimerEventType.RETURN_PROMPT:
+            self.return_prompt.emit(self._reminder_context)
         elif event.type == TimerEventType.WORK_STARTED:
             self._work_start_dt = now_dt
         elif event.type == TimerEventType.WORK_ENDED:

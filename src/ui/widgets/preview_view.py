@@ -45,6 +45,11 @@ class PreviewView(QWidget):
     def set_edit_mode(self, on: bool) -> None:
         self._edit_mode = on
         self.setCursor(Qt.CursorShape.CrossCursor if on else Qt.CursorShape.ArrowCursor)
+        if on:
+            from src.ui.strings import ROI_HINT
+            self._label.setText(ROI_HINT)
+        else:
+            self._label.setText("")
 
     def set_overlay_text(self, text: str) -> None:
         self._label.setText(text)

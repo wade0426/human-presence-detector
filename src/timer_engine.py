@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from src.types import ResetMode, TimerEvent, TimerEventType, TimerSnapshot, TimerState
+from src.types import (
+    RestCountMode,
+    TimerEvent,
+    TimerEventType,
+    TimerSnapshot,
+    TimerState,
+)
 
 
 class TimerEngine:
@@ -9,16 +15,14 @@ class TimerEngine:
         work_threshold_sec: float,
         reset_threshold_sec: float,
         required_rest_sec: float,
-        reset_mode: ResetMode,
         repeat_interval_sec: float,
-        snooze_sec: float,
+        rest_count_mode: RestCountMode = RestCountMode.PRESENCE,
     ) -> None:
         self._work_threshold_sec = work_threshold_sec
         self._reset_threshold_sec = reset_threshold_sec
         self._required_rest_sec = required_rest_sec
-        self._reset_mode = reset_mode
         self._repeat_interval_sec = repeat_interval_sec
-        self._snooze_sec = snooze_sec
+        self._rest_count_mode = rest_count_mode
 
         self._state = TimerState.IDLE
         self._work_elapsed = 0.0
@@ -27,13 +31,25 @@ class TimerEngine:
         self._rest_start_t: float | None = None
         self._work_start_t: float | None = None
         self._reminder_last_t: float | None = None
-        self._snooze_until: float | None = None
+
+        # Rest tracking
+        self._rest_started_at: float | None = None
+        self._rest_accumulated: float = 0.0
+
+        # Pause support
+        self._paused: bool = False
+        self._state_before_pause: TimerState = TimerState.IDLE
 
     @property
     def state(self) -> TimerState:
+        if self._paused:
+            return TimerState.SUSPENDED
         return self._state
 
     def update(self, present: bool, now: float) -> list[TimerEvent]:
+        if self._paused:
+            return []
+
         events: list[TimerEvent] = []
         dt = 0.0 if self._last_t is None else max(0.0, now - self._last_t)
         self._last_t = now
@@ -61,13 +77,12 @@ class TimerEngine:
                     self._state = TimerState.REMINDING
                     self._reminder_last_t = now
                     self._away_since = None
-                    self._snooze_until = None
                     events.append(self._event(TimerEventType.REMINDER_TRIGGERED, now))
             else:
-                self._state = TimerState.PAUSED
+                self._state = TimerState.AWAY
                 self._away_since = now
 
-        elif self._state == TimerState.PAUSED:
+        elif self._state == TimerState.AWAY:
             if present:
                 self._state = TimerState.WORKING
                 self._away_since = None
@@ -93,86 +108,114 @@ class TimerEngine:
             if present:
                 self._work_elapsed += dt
                 self._away_since = None
-                should_repeat = False
-                if self._reset_mode == ResetMode.DETECTION:
-                    should_repeat = True
-                elif self._reset_mode == ResetMode.SNOOZE:
-                    should_repeat = (
-                        self._snooze_until is None or now >= self._snooze_until
-                    )
-
                 if (
-                    should_repeat
-                    and self._reminder_last_t is not None
+                    self._reminder_last_t is not None
                     and (now - self._reminder_last_t) >= self._repeat_interval_sec
                 ):
                     self._reminder_last_t = now
                     events.append(self._event(TimerEventType.REMINDER_REPEATED, now))
             else:
-                if self._away_since is None:
-                    self._away_since = now
-                elif (now - self._away_since) >= self._required_rest_sec:
-                    events.append(
-                        self._event(
-                            TimerEventType.WORK_ENDED,
-                            now,
-                            duration_sec=self._work_elapsed,
-                            ended_by="rest_done",
-                        )
-                    )
-                    self._rest_start_t = self._away_since
-                    self._state = TimerState.IDLE
-                    self._work_elapsed = 0.0
-                    self._away_since = None
-                    self._work_start_t = None
-                    self._reminder_last_t = None
-                    self._snooze_until = None
+                # Direct absence from REMINDING → start rest
+                self._state = TimerState.RESTING
+                self._rest_started_at = now
+                self._rest_accumulated = 0.0
+                self._away_since = None
+                self._reminder_last_t = None
+                events.append(self._event(TimerEventType.REST_STARTED, now))
+
+        elif self._state == TimerState.RESTING:
+            satisfied = False
+            if self._rest_count_mode == RestCountMode.PRESENCE:
+                if not present:
+                    self._rest_accumulated += dt
+                satisfied = self._rest_accumulated >= self._required_rest_sec
+            else:  # FIXED
+                if self._rest_started_at is not None:
+                    satisfied = (now - self._rest_started_at) >= self._required_rest_sec
+
+            if satisfied and present:
+                self._state = TimerState.AWAITING_RETURN
+                events.append(self._event(TimerEventType.RETURN_PROMPT, now))
+            # else: stay RESTING (waiting for rest to complete or for return)
+
+        elif self._state == TimerState.AWAITING_RETURN:
+            # Do not change state automatically; wait for confirm_return()
+            pass
 
         return events
 
-    def on_reminder_dismissed(self, now: float) -> list[TimerEvent]:
+    def start_rest(self, now: float) -> list[TimerEvent]:
+        """Transition from REMINDING to RESTING (user manually starts rest)."""
         if self._state != TimerState.REMINDING:
             return []
+        self._state = TimerState.RESTING
+        self._rest_started_at = now
+        self._rest_accumulated = 0.0
+        self._reminder_last_t = None
+        self._last_t = now
+        return [self._event(TimerEventType.REST_STARTED, now)]
 
-        if self._reset_mode == ResetMode.DISMISS:
-            finished_duration = self._work_elapsed
-            self._state = TimerState.WORKING
-            self._work_elapsed = 0.0
-            self._work_start_t = now
-            self._away_since = None
-            self._reminder_last_t = None
-            self._snooze_until = None
-            return [
-                self._event(
-                    TimerEventType.WORK_ENDED,
-                    now,
-                    duration_sec=finished_duration,
-                    ended_by="dismiss",
-                ),
-                self._event(TimerEventType.WORK_STARTED, now),
-            ]
-
-        if self._reset_mode == ResetMode.SNOOZE:
-            self._snooze_until = now + self._snooze_sec
-            self._reminder_last_t = now
+    def confirm_return(self, now: float) -> list[TimerEvent]:
+        """Transition from AWAITING_RETURN to WORKING (user confirms they're back)."""
+        if self._state != TimerState.AWAITING_RETURN:
             return []
+        rest_duration = 0.0
+        if self._rest_started_at is not None:
+            rest_duration = now - self._rest_started_at
+        events: list[TimerEvent] = [
+            self._event(TimerEventType.REST_ENDED, now, duration_sec=rest_duration),
+            self._event(TimerEventType.WORK_STARTED, now),
+        ]
+        self._state = TimerState.WORKING
+        self._work_elapsed = 0.0
+        self._work_start_t = now
+        self._last_t = now
+        self._rest_started_at = None
+        self._rest_accumulated = 0.0
+        return events
 
-        self._reminder_last_t = now
-        return []
+    def pause(self, now: float) -> None:
+        """Suspend the timer, freezing all elapsed counters."""
+        if not self._paused:
+            self._state_before_pause = self._state
+            self._paused = True
+
+    def resume(self, now: float) -> None:
+        """Resume the timer from suspended state, resetting the time baseline."""
+        if self._paused:
+            self._paused = False
+            self._last_t = now  # ★ Key: reset baseline so next dt ≈ 0
+            self._state = self._state_before_pause
 
     def snapshot(self, now: float) -> TimerSnapshot:
+        state = TimerState.SUSPENDED if self._paused else self._state
+
         remaining = (
             max(0.0, self._work_threshold_sec - self._work_elapsed)
             if self._state == TimerState.WORKING
             else 0.0
         )
         away_elapsed = 0.0 if self._away_since is None else now - self._away_since
+
+        rest_remaining = 0.0
+        rest_elapsed = 0.0
+
+        if self._state == TimerState.RESTING:
+            if self._rest_count_mode == RestCountMode.FIXED and self._rest_started_at is not None:
+                rest_remaining = max(
+                    0.0, self._required_rest_sec - (now - self._rest_started_at)
+                )
+            elif self._rest_count_mode == RestCountMode.PRESENCE:
+                rest_elapsed = self._rest_accumulated
+
         return TimerSnapshot(
-            state=self._state,
+            state=state,
             work_elapsed_sec=self._work_elapsed,
             away_elapsed_sec=away_elapsed,
             remaining_to_reminder_sec=remaining,
             reminder_active=self._state == TimerState.REMINDING,
+            rest_remaining_sec=rest_remaining,
+            rest_elapsed_sec=rest_elapsed,
         )
 
     def _event(

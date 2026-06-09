@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QWidget
 
-from src.types import TimerSnapshot
+from src.types import TimerSnapshot, TimerState
 from src.ui.strings import STATE_TEXT
 
 
@@ -22,8 +22,22 @@ class StatusStrip(QWidget):
 
     def update_snapshot(self, snap: TimerSnapshot, work_threshold_sec: float) -> None:
         self._state_label.setText(STATE_TEXT.get(snap.state, ""))
-        elapsed = int(snap.work_elapsed_sec)
-        self._time_label.setText(f"{elapsed // 60:02d}:{elapsed % 60:02d}")
-        maximum = max(1, int(work_threshold_sec))
-        self._progress.setMaximum(maximum)
-        self._progress.setValue(min(elapsed, maximum))
+
+        if snap.state == TimerState.RESTING:
+            # FIXED mode: show countdown (rest_remaining_sec > 0)
+            # PRESENCE mode: show elapsed rest time (rest_elapsed_sec)
+            if snap.rest_remaining_sec > 0:
+                secs = int(snap.rest_remaining_sec)
+            else:
+                secs = int(snap.rest_elapsed_sec)
+            self._time_label.setText(f"{secs // 60:02d}:{secs % 60:02d}")
+            # Progress bar: not meaningful during rest; keep at 0
+            self._progress.setMaximum(max(1, int(work_threshold_sec)))
+            self._progress.setValue(0)
+        else:
+            elapsed = int(snap.work_elapsed_sec)
+            self._time_label.setText(f"{elapsed // 60:02d}:{elapsed % 60:02d}")
+            maximum = max(1, int(work_threshold_sec))
+            self._progress.setMaximum(maximum)
+            self._progress.setValue(min(elapsed, maximum))
+

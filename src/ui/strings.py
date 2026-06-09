@@ -35,8 +35,11 @@ CONN_ERROR_PREFIX = "錯誤："
 STATE_TEXT: dict[TimerState, str] = {
     TimerState.IDLE: "待機",
     TimerState.WORKING: "工作中",
-    TimerState.PAUSED: "短暫離開",
+    TimerState.AWAY: "短暫離開",
     TimerState.REMINDING: "提醒中",
+    TimerState.RESTING: "休息中",
+    TimerState.AWAITING_RETURN: "待機",
+    TimerState.SUSPENDED: "已暫停",
 }
 
 
@@ -73,3 +76,19 @@ ACTION_EDIT_ROI = "編輯 ROI"
 ACTION_PAUSE = "暫停"
 ACTION_RESUME = "繼續"
 ACTION_SETTINGS = "設定"
+
+# Presence indicators
+PRESENCE_YES = "有人"
+PRESENCE_NO = "無人"
+
+# Action bar – quit / ROI edit
+ACTION_QUIT = "離開"
+ACTION_EDIT_ROI_ACTIVE = "完成編輯"
+ROI_HINT = "拖曳以選取偵測區域"
+QUIT_CONFIRM_TITLE = "離開"
+QUIT_CONFIRM_BODY = "確定要關閉系統嗎？"
+
+# Return prompt (M7)
+RETURN_TITLE = "歡迎回來"
+RETURN_BODY = "休息結束，要開始新一輪工作嗎？"
+RETURN_CONFIRM = "開始新一輪"

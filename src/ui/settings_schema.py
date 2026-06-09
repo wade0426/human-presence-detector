@@ -6,7 +6,6 @@ from enum import Enum
 from typing import Any
 
 from src.config import MINUTE_MAX, MINUTE_MIN, AppConfig
-from src.types import ResetMode
 
 
 class WidgetKind(Enum):
@@ -93,6 +92,14 @@ SCHEMA: tuple[FieldSpec, ...] = (
         decimals=1,
     ),
     FieldSpec(
+        "timer.rest_count_mode",
+        "休息計算方式",
+        "presence＝必須離座才算休息；fixed＝固定倒數。",
+        WidgetKind.CHOICE,
+        "基本",
+        choices=("presence", "fixed"),
+    ),
+    FieldSpec(
         "detection.confidence",
         "偵測把握度",
         "人體偵測的最低把握度，越高越嚴格、誤判越少但可能漏抓。",
@@ -141,28 +148,9 @@ SCHEMA: tuple[FieldSpec, ...] = (
         choices=("popup", "toast", "floating"),
     ),
     FieldSpec(
-        "reminder.reset_mode",
-        "提醒重置方式",
-        "提醒後如何重置：離開才重置 / 按掉即重置 / 先貪睡。",
-        WidgetKind.CHOICE,
-        "提醒",
-        choices=tuple(mode.value for mode in ResetMode),
-    ),
-    FieldSpec(
         "reminder.repeat_interval_min",
         "重複提醒間隔（分鐘）",
         "未處理時，每隔多久再提醒一次。",
-        WidgetKind.FLOAT,
-        "提醒",
-        minimum=MINUTE_MIN,
-        maximum=MINUTE_MAX,
-        step=0.1,
-        decimals=1,
-    ),
-    FieldSpec(
-        "reminder.snooze_min",
-        "貪睡時間（分鐘）",
-        "按下貪睡後，延後多久再次提醒。",
         WidgetKind.FLOAT,
         "提醒",
         minimum=MINUTE_MIN,

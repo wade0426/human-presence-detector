@@ -14,6 +14,7 @@ from src.ui.settings_schema import set_value
 from src.ui.strings import CONN_ERROR_PREFIX, CONN_TEXT
 from src.ui.widgets.action_bar import ActionBar
 from src.ui.widgets.connection_badge import ConnectionBadge
+from src.ui.widgets.presence_badge import PresenceBadge
 from src.ui.widgets.preview_view import PreviewView
 from src.ui.widgets.status_strip import StatusStrip
 from src.ui.widgets.today_summary_view import TodaySummaryView
@@ -63,11 +64,13 @@ class MainWindow(QMainWindow):
         self._preview.set_roi(self._config.presence.roi)
         self._status = StatusStrip()
         self._badge = ConnectionBadge()
+        self._presence_badge = PresenceBadge()
         self._summary = TodaySummaryView()
         self._actions = ActionBar()
 
         top_bar = QHBoxLayout()
         top_bar.addStretch()
+        top_bar.addWidget(self._presence_badge)
         top_bar.addWidget(self._badge)
 
         middle_bar = QHBoxLayout()
@@ -103,7 +106,7 @@ class MainWindow(QMainWindow):
         self._preview.set_frame(frame)
 
     def on_presence_changed(self, present: bool) -> None:
-        del present
+        self._presence_badge.set_present(present)
 
     def on_timer_updated(self, snap: TimerSnapshot) -> None:
         self._status.update_snapshot(snap, self._work_threshold_sec)
@@ -117,6 +120,7 @@ class MainWindow(QMainWindow):
             ConnectionState.CONNECTING,
         ):
             self._preview.set_overlay_text(CONN_TEXT.get(state, ""))
+            self._presence_badge.set_present(False)
         else:
             self._preview.set_overlay_text("")
 

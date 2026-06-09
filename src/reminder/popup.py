@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QUrl, Signal
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QSoundEffect
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
@@ -11,7 +12,7 @@ from src.ui import strings
 
 
 class PopupReminder(QDialog):
-    dismissed = Signal()
+    start_rest = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -21,10 +22,9 @@ class PopupReminder(QDialog):
         self.media_label.setScaledContents(True)
         self.video_widget = QVideoWidget()
         self.video_widget.hide()
+        # Single action button: "開始休息"
         self.dismiss_button = QPushButton(strings.REMIND_START_REST)
-        self.dismiss_button.clicked.connect(self._dismiss)
-        self.close_button = QPushButton(strings.REMIND_CLOSE)
-        self.close_button.clicked.connect(self.hide)
+        self.dismiss_button.clicked.connect(self._on_start_rest)
         self._button_layout = QHBoxLayout()
 
         layout = QVBoxLayout()
@@ -32,7 +32,6 @@ class PopupReminder(QDialog):
         layout.addWidget(self.media_label)
         layout.addWidget(self.video_widget)
         self._button_layout.addWidget(self.dismiss_button)
-        self._button_layout.addWidget(self.close_button)
         layout.addLayout(self._button_layout)
         self.setLayout(layout)
 
@@ -47,7 +46,8 @@ class PopupReminder(QDialog):
             super().show()
             return
         self.message_label.setText(strings.REMIND_BODY.format(minutes=ctx.work_minutes))
-        self._setup_buttons(ctx)
+        # Ensure single button text is always "開始休息"
+        self.dismiss_button.setText(strings.REMIND_START_REST)
         if ctx.media_type == "video" and is_playable_video(ctx.media_path):
             self.media_label.hide()
             self.video_widget.show()
@@ -72,18 +72,14 @@ class PopupReminder(QDialog):
         self._media_player.stop()
         super().hide()
 
-    def _dismiss(self) -> None:
-        self.dismissed.emit()
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Close (X button) = hide only; do NOT emit start_rest. Popup repeats later."""
+        event.ignore()
         self.hide()
 
-    def _setup_buttons(self, ctx: ReminderContext) -> None:
-        if ctx.reset_mode == "snooze":
-            self.dismiss_button.setText(strings.REMIND_SNOOZE.format(minutes=ctx.snooze_minutes))
-        elif ctx.reset_mode == "dismiss":
-            self.dismiss_button.setText(strings.REMIND_START_REST)
-        else:
-            self.dismiss_button.setText(strings.REMIND_ACK)
-        self.close_button.setText(strings.REMIND_CLOSE)
+    def _on_start_rest(self) -> None:
+        self.start_rest.emit()
+        self.hide()
 
 
 def _as_widget(reminder: PopupReminder) -> QWidget:
