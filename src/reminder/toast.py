@@ -4,6 +4,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QSystemTrayIcon
 
 from src.types import ReminderContext
+from src.ui import strings
 
 
 class ToastReminder(QObject):
@@ -14,7 +15,10 @@ class ToastReminder(QObject):
         self._tray = tray or QSystemTrayIcon()
 
     def show(self, ctx: ReminderContext) -> None:
-        self._tray.showMessage("休息提醒", f"你已連續工作 {ctx.work_minutes} 分鐘。")
+        self._tray.showMessage(
+            strings.REMIND_TITLE,
+            strings.REMIND_BODY.format(minutes=ctx.work_minutes),
+        )
         self.dismissed.emit()
 
     def hide(self) -> None:

@@ -23,7 +23,7 @@
 - [x] **M9** `src/ui/settings.py` — 設定視窗重構
 - [ ] **M10** `src/ui/main_window.py` + `src/ui/widgets/` — 主視窗重構
 - [x] **M11** `src/ui/tray.py` — 系統匣修正（修改）
-- [ ] **M12** `src/reminder/media.py` + `src/reminder/*` — 提醒統一與媒體降級
+- [x] **M12** `src/reminder/media.py` + `src/reminder/*` — 提醒統一與媒體降級
 
 ### 入口層
 - [ ] **M13** `src/main.py` — 組裝與接線（修改）

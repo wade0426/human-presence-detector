@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from src.config import FloatingConfig
@@ -51,3 +52,8 @@ class FloatingReminder(QWidget):
         else:
             self.label.setText("請立刻休息")
             self.setStyleSheet("background-color: red;" if self._flash else "")
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        self.dismissed.emit()
+        self.hide()
+        super().mousePressEvent(event)

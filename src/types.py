@@ -76,3 +76,5 @@ class ReminderContext:
     media_path: str
     media_type: str
     sound_path: str
+    reset_mode: str = "detection"
+    snooze_minutes: int = 5
