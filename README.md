@@ -193,13 +193,6 @@ rtk ruff check src/ tests/
 7. 設定可以透過 UI 或 `config.yaml` 調整並保存。
 8. RTSP 斷線時程式不崩潰並能重連。
 
-## 相關文件
-
-- 需求文件：[docs/proposal.md](/D:/Code/Python/human-presence-detector/docs/proposal.md)
-- 詳細設計：[docs/detailed-design.md](/D:/Code/Python/human-presence-detector/docs/detailed-design.md)
-- 任務進度：[docs/tasks/progress.md](/D:/Code/Python/human-presence-detector/docs/tasks/progress.md)
-- 主開發 prompt：[docs/prompt.md](/D:/Code/Python/human-presence-detector/docs/prompt.md)
-
 ## 注意事項
 
 - `data/` 目前被 `.gitignore` 忽略，執行產物與本地資產預期不進版控。

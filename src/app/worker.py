@@ -82,6 +82,9 @@ class DetectionWorker(QObject):
 
     def stop(self) -> None:
         self._stop = True
+        release = getattr(self._source, "release", None)
+        if callable(release):
+            release()
 
     def pause(self) -> None:
         self._paused = True

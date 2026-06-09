@@ -20,6 +20,14 @@ from src.ui.settings import SettingsDialog
 from src.ui.tray import TrayIcon
 
 
+def _shutdown_worker_thread(worker: DetectionWorker, thread: QThread) -> None:
+    worker.stop()
+    thread.quit()
+    if not thread.wait(1500):
+        thread.terminate()
+        thread.wait(500)
+
+
 def _build_worker(cfg: AppConfig) -> DetectionWorker:
     source = create_source(cfg.source)
     detector = PersonDetector(
@@ -88,9 +96,7 @@ def main() -> int:
     tray.settings_action.triggered.connect(settings_dialog.show)
     tray.toggle_action.triggered.connect(worker.pause)
     tray.quit_action.triggered.connect(app.quit)
-    app.aboutToQuit.connect(worker.stop)
-    app.aboutToQuit.connect(thread.quit)
-    app.aboutToQuit.connect(thread.wait)
+    app.aboutToQuit.connect(lambda: _shutdown_worker_thread(worker, thread))
 
     signal.signal(signal.SIGINT, lambda *_args: app.quit())
     sigint_pump = QTimer()

@@ -15,6 +15,7 @@ class FakeSource:
     def __init__(self, frames: list[Frame | None]) -> None:
         self._frames = list(frames)
         self._index = 0
+        self.release_calls = 0
 
     def read(self) -> Frame | None:
         if self._index >= len(self._frames):
@@ -22,6 +23,9 @@ class FakeSource:
         frame = self._frames[self._index]
         self._index += 1
         return frame
+
+    def release(self) -> None:
+        self.release_calls += 1
 
 
 class FakeDetector:
@@ -166,3 +170,23 @@ def test_worker_emits_failed_when_store_init_crashes(qtbot: pytest.QtBot) -> Non
     thread.join(timeout=1.0)
 
     assert blocker.args == ["boom"]
+
+
+def test_worker_stop_releases_source() -> None:
+    source = FakeSource([_frame()])
+    from src.app.worker import DetectionWorker
+
+    worker = DetectionWorker(
+        source=source,
+        detector=FakeDetector([[]]),
+        presence_evaluator=PresenceEvaluator(BBox(0.0, 0.0, 1.0, 1.0), 0.2, 1),
+        timer_engine=TimerEngine(10.0, 5.0, 5.0, ResetMode.DETECTION, 3.0, 2.0),
+        store=FakeStore(),
+        detection_interval_sec=0.0,
+        reminder_context=ReminderContext(45, "", "image", ""),
+        clock=FakeClock(),
+    )
+
+    worker.stop()
+
+    assert source.release_calls == 1

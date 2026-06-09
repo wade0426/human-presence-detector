@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+from src.main import _shutdown_worker_thread
+
+
+class FakeWorker:
+    def __init__(self) -> None:
+        self.stop_calls = 0
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+
+
+class FakeThread:
+    def __init__(self, *, wait_result: bool) -> None:
+        self.quit_calls = 0
+        self.wait_calls: list[int] = []
+        self.terminate_calls = 0
+        self._wait_result = wait_result
+
+    def quit(self) -> None:
+        self.quit_calls += 1
+
+    def wait(self, timeout: int) -> bool:
+        self.wait_calls.append(timeout)
+        return self._wait_result
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+
+
+def test_shutdown_worker_thread_stops_worker_and_quits_thread() -> None:
+    worker = FakeWorker()
+    thread = FakeThread(wait_result=True)
+
+    _shutdown_worker_thread(worker, thread)
+
+    assert worker.stop_calls == 1
+    assert thread.quit_calls == 1
+    assert thread.wait_calls == [1500]
+    assert thread.terminate_calls == 0
+
+
+def test_shutdown_worker_thread_terminates_when_thread_does_not_exit() -> None:
+    worker = FakeWorker()
+    thread = FakeThread(wait_result=False)
+
+    _shutdown_worker_thread(worker, thread)
+
+    assert worker.stop_calls == 1
+    assert thread.quit_calls == 1
+    assert thread.wait_calls == [1500, 500]
+    assert thread.terminate_calls == 1
