@@ -104,9 +104,47 @@ def test_source_type_toggle(qtbot: pytest.QtBot, tmp_path: object) -> None:
         assert not rtsp_widget.isEnabled()
 
 
-def test_tray_icon_can_be_created() -> None:
+def test_tray_icon_can_be_created(qtbot: pytest.QtBot) -> None:
     from src.ui.tray import TrayIcon
 
     tray = TrayIcon()
+    qtbot.addWidget(QWidget())
 
     assert tray.contextMenu() is not None
+
+
+def test_tray_icon_not_null(qtbot: pytest.QtBot) -> None:
+    from src.ui.tray import TrayIcon
+
+    tray = TrayIcon()
+    qtbot.addWidget(QWidget())
+
+    assert not tray.icon().isNull()
+
+
+def test_tray_set_paused_changes_toggle_text(qtbot: pytest.QtBot) -> None:
+    from src.ui import strings
+    from src.ui.tray import TrayIcon
+
+    tray = TrayIcon()
+    qtbot.addWidget(QWidget())
+    tray.set_paused(True)
+    assert tray.toggle_action.text() == strings.TRAY_RESUME
+
+    tray.set_paused(False)
+    assert tray.toggle_action.text() == strings.TRAY_PAUSE
+
+
+def test_tray_tooltip_updates_with_state(qtbot: pytest.QtBot) -> None:
+    from src.app.connection_state import ConnectionState
+    from src.types import TimerState
+    from src.ui.tray import TrayIcon
+
+    tray = TrayIcon()
+    qtbot.addWidget(QWidget())
+    tray.set_timer_state(TimerState.WORKING)
+    tray.set_connection(ConnectionState.CONNECTED)
+
+    tooltip = tray.toolTip()
+    assert "工作中" in tooltip
+    assert "已連線" in tooltip

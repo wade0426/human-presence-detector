@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
+from src.app.connection_state import ConnectionState
 from src.types import TimerState
 from src.ui import strings
+from src.ui.icons import load_app_icon
 
 
 class TrayIcon(QSystemTrayIcon):
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(QIcon(), parent)
+        super().__init__(load_app_icon(), parent)
         menu = QMenu(parent)
-        self.open_action = QAction("開啟主視窗", self)
-        self.toggle_action = QAction("暫停/繼續偵測", self)
-        self.settings_action = QAction("設定", self)
-        self.quit_action = QAction("結束", self)
+        self.open_action = QAction(strings.TRAY_OPEN, self)
+        self.toggle_action = QAction(strings.TRAY_PAUSE, self)
+        self.settings_action = QAction(strings.TRAY_SETTINGS, self)
+        self.quit_action = QAction(strings.TRAY_QUIT, self)
         menu.addAction(self.open_action)
         menu.addAction(self.toggle_action)
         menu.addAction(self.settings_action)
@@ -23,7 +25,10 @@ class TrayIcon(QSystemTrayIcon):
         self.setContextMenu(menu)
         self.activated.connect(self._on_activated)
         self._window_to_show: QWidget | None = None
-        self.setToolTip("人體辨識休息提醒系統")
+        self._paused = False
+        self._timer_state = TimerState.IDLE
+        self._conn_state = ConnectionState.IDLE
+        self._update_tooltip()
 
     def bind_window(self, window: QWidget) -> None:
         self._window_to_show = window
@@ -31,7 +36,24 @@ class TrayIcon(QSystemTrayIcon):
         self.open_action.triggered.connect(window.activateWindow)
 
     def update_status(self, state: TimerState) -> None:
-        self.setToolTip(f"人體辨識休息提醒系統 - {strings.timer_state_text(state)}")
+        self.set_timer_state(state)
+
+    def set_paused(self, paused: bool) -> None:
+        self._paused = paused
+        self.toggle_action.setText(strings.TRAY_RESUME if paused else strings.TRAY_PAUSE)
+
+    def set_timer_state(self, state: TimerState) -> None:
+        self._timer_state = state
+        self._update_tooltip()
+
+    def set_connection(self, state: ConnectionState) -> None:
+        self._conn_state = state
+        self._update_tooltip()
+
+    def _update_tooltip(self) -> None:
+        timer_text = strings.STATE_TEXT.get(self._timer_state, "")
+        conn_text = strings.CONN_TEXT.get(self._conn_state, "")
+        self.setToolTip(f"人體辨識提醒 — {conn_text} / {timer_text}")
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if (
