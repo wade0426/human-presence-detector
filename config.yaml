@@ -1,0 +1,40 @@
+source:
+  type: rtsp
+  rtsp_url: "rtsp://user:pass@host:554/stream"
+  webcam_index: 0
+  reconnect_interval_sec: 5
+
+detection:
+  model_path: "data/model/yolov8n.pt"
+  interval_sec: 1.0
+  confidence: 0.4
+  device: auto
+
+presence:
+  roi: [0.3, 0.2, 0.4, 0.7]
+  min_box_height_ratio: 0.25
+  debounce_count: 3
+
+timer:
+  work_threshold_min: 45
+  reset_threshold_min: 5
+  required_rest_min: 5
+
+reminder:
+  method: popup
+  reset_mode: detection
+  repeat_interval_min: 2
+  snooze_min: 5
+  popup:
+    media_path: "data/assets/rest_placeholder.png"
+    media_type: image
+    sound_path: ""
+  floating:
+    position: top-right
+
+logging:
+  enabled: true
+  db_path: "data/records.sqlite"
+
+ui:
+  start_minimized: false
