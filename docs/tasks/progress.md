@@ -9,7 +9,7 @@
 - [x] **M4** `src/app/connection_state.py` — 連線狀態模型（新增）
 
 ### 基礎設施層
-- [ ] **M5** `src/logging_setup.py` — Log 設定與解碼噪音壓制（新增）
+- [x] **M5** `src/logging_setup.py` — Log 設定與解碼噪音壓制（新增）
 - [x] **A1** `src/ui/icons.py` — 後備程式圖示（新增）
 
 ### I/O 介面卡層
