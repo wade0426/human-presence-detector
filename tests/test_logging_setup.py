@@ -32,6 +32,17 @@ def test_setup_logging_level(tmp_path: object) -> None:
     assert logger.level == logging.WARNING
 
 
+def test_setup_logging_reuses_existing_rotating_handler(tmp_path: object) -> None:
+    from src.logging_setup import setup_logging
+
+    logger = setup_logging(log_dir=str(tmp_path), level=logging.INFO)
+    logger = setup_logging(log_dir=str(tmp_path), level=logging.DEBUG)
+    handlers = [handler for handler in logger.handlers if isinstance(handler, RotatingFileHandler)]
+
+    assert len(handlers) == 1
+    assert logger.level == logging.DEBUG
+
+
 def test_suppress_decoder_noise_sets_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENCV_FFMPEG_LOGLEVEL", raising=False)
 

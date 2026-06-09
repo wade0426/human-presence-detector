@@ -13,7 +13,7 @@ def setup_logging(
     backup_count: int = 3,
 ) -> logging.Logger:
     Path(log_dir).mkdir(parents=True, exist_ok=True)
-    log_path = Path(log_dir) / "app.log"
+    log_path = (Path(log_dir) / "app.log").resolve()
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
 
     file_handler = RotatingFileHandler(
@@ -26,6 +26,13 @@ def setup_logging(
 
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
+    for handler in list(root_logger.handlers):
+        if (
+            isinstance(handler, RotatingFileHandler)
+            and Path(handler.baseFilename).resolve() == log_path
+        ):
+            root_logger.removeHandler(handler)
+            handler.close()
     root_logger.addHandler(file_handler)
     log_path.touch(exist_ok=True)
     return root_logger
