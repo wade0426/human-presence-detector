@@ -16,6 +16,7 @@ class FakeSource:
         self._frames = list(frames)
         self._index = 0
         self.release_calls = 0
+        self.is_opened = False
 
     def read(self) -> Frame | None:
         if self._index >= len(self._frames):
@@ -78,6 +79,21 @@ def _frame() -> Frame:
     return Frame(image=image, width=10, height=10, timestamp=0.0)
 
 
+def _make_worker(source: FakeSource) -> object:
+    from src.app.worker import DetectionWorker
+
+    return DetectionWorker(
+        source=source,
+        detector=FakeDetector([[]]),
+        presence_evaluator=PresenceEvaluator(BBox(0.0, 0.0, 1.0, 1.0), 0.2, 1),
+        timer_engine=TimerEngine(10.0, 5.0, 5.0, ResetMode.DETECTION, 3.0, 2.0),
+        store=FakeStore(),
+        detection_interval_sec=0.0,
+        reminder_context=ReminderContext(45, "", "image", ""),
+        clock=FakeClock(),
+    )
+
+
 @pytest.mark.qt
 def test_worker_emits_frame_ready_after_running(qtbot: pytest.QtBot) -> None:
     from src.app.worker import DetectionWorker
@@ -101,19 +117,10 @@ def test_worker_emits_frame_ready_after_running(qtbot: pytest.QtBot) -> None:
 
 
 @pytest.mark.qt
-def test_worker_emits_reconnecting_when_frame_missing(qtbot: pytest.QtBot) -> None:
-    from src.app.worker import DetectionWorker
-
-    worker = DetectionWorker(
-        source=FakeSource([None]),
-        detector=FakeDetector([[]]),
-        presence_evaluator=PresenceEvaluator(BBox(0.0, 0.0, 1.0, 1.0), 0.2, 1),
-        timer_engine=TimerEngine(10.0, 5.0, 5.0, ResetMode.DETECTION, 3.0, 2.0),
-        store=FakeStore(),
-        detection_interval_sec=0.0,
-        reminder_context=ReminderContext(45, "", "image", ""),
-        clock=FakeClock(),
-    )
+def test_worker_emits_connecting_at_start(qtbot: pytest.QtBot) -> None:
+    source = FakeSource([None])
+    source.is_opened = False
+    worker = _make_worker(source)
 
     thread = threading.Thread(target=worker.run, daemon=True)
     with qtbot.waitSignal(worker.connection_status, timeout=3000) as blocker:
@@ -121,7 +128,43 @@ def test_worker_emits_reconnecting_when_frame_missing(qtbot: pytest.QtBot) -> No
     worker.stop()
     thread.join(timeout=1.0)
 
-    assert blocker.args == ["reconnecting"]
+    assert blocker.args == ["connecting"]
+
+
+@pytest.mark.qt
+def test_worker_emits_no_signal_when_source_open_but_no_frame(qtbot: pytest.QtBot) -> None:
+    source = FakeSource([None])
+    source.is_opened = True
+    worker = _make_worker(source)
+
+    statuses: list[str] = []
+    worker.connection_status.connect(statuses.append)
+
+    thread = threading.Thread(target=worker.run, daemon=True)
+    thread.start()
+    qtbot.waitUntil(lambda: "no_signal" in statuses, timeout=3000)
+    worker.stop()
+    thread.join(timeout=1.0)
+
+    assert statuses[:2] == ["connecting", "no_signal"]
+
+
+@pytest.mark.qt
+def test_worker_emits_reconnecting_when_source_closed(qtbot: pytest.QtBot) -> None:
+    source = FakeSource([None])
+    source.is_opened = False
+    worker = _make_worker(source)
+
+    statuses: list[str] = []
+    worker.connection_status.connect(statuses.append)
+
+    thread = threading.Thread(target=worker.run, daemon=True)
+    thread.start()
+    qtbot.waitUntil(lambda: "reconnecting" in statuses, timeout=3000)
+    worker.stop()
+    thread.join(timeout=1.0)
+
+    assert statuses[:2] == ["connecting", "reconnecting"]
 
 
 @pytest.mark.qt

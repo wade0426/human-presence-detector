@@ -16,7 +16,7 @@
 - [x] **M6** `src/logging_store.py` — 今日彙總唯讀查詢（修改）
 
 ### Qt 接線層
-- [ ] **M7** `src/app/worker.py` — 豐富連線狀態（修改）
+- [x] **M7** `src/app/worker.py` — 豐富連線狀態（修改）
 
 ### Qt UI 層
 - [ ] **M8** `src/ui/theme.py` — 主題管理（新增）

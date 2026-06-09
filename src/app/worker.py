@@ -46,6 +46,7 @@ class DetectionWorker(QObject):
     def run(self) -> None:
         try:
             self._store.init_schema()
+            self.connection_status.emit("connecting")
             while not self._stop:
                 if self._paused:
                     time.sleep(0.1)
@@ -54,7 +55,11 @@ class DetectionWorker(QObject):
                 loop_start = self._clock()
                 frame = self._source.read()
                 if frame is None:
-                    self.connection_status.emit("reconnecting")
+                    is_opened = getattr(self._source, "is_opened", False)
+                    if is_opened:
+                        self.connection_status.emit("no_signal")
+                    else:
+                        self.connection_status.emit("reconnecting")
                     time.sleep(0.2)
                     continue
 
