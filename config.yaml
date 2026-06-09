@@ -16,9 +16,9 @@ presence:
   debounce_count: 3
 
 timer:
-  work_threshold_min: 45
-  reset_threshold_min: 5
-  required_rest_min: 5
+  work_threshold_min: 0.5
+  reset_threshold_min: 0.5
+  required_rest_min: 0.5
 
 reminder:
   method: popup
