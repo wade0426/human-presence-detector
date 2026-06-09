@@ -17,6 +17,7 @@ class DetectionWorker(QObject):
     reminder_show = Signal(object)
     reminder_repeat = Signal(object)
     connection_status = Signal(str)
+    failed = Signal(str)
 
     def __init__(
         self,
@@ -43,33 +44,41 @@ class DetectionWorker(QObject):
         self._work_start_dt: datetime | None = None
 
     def run(self) -> None:
-        self._store.init_schema()
-        while not self._stop:
-            if self._paused:
-                time.sleep(0.1)
-                continue
+        try:
+            self._store.init_schema()
+            while not self._stop:
+                if self._paused:
+                    time.sleep(0.1)
+                    continue
 
-            loop_start = self._clock()
-            frame = self._source.read()
-            if frame is None:
-                self.connection_status.emit("reconnecting")
-                time.sleep(0.2)
-                continue
+                loop_start = self._clock()
+                frame = self._source.read()
+                if frame is None:
+                    self.connection_status.emit("reconnecting")
+                    time.sleep(0.2)
+                    continue
 
-            self.connection_status.emit("connected")
-            self.frame_ready.emit(frame)
-            detections = self._detector.detect(frame)
-            present = self._presence_evaluator.update(detections)
-            self.presence_changed.emit(present)
+                self.connection_status.emit("connected")
+                self.frame_ready.emit(frame)
+                detections = self._detector.detect(frame)
+                present = self._presence_evaluator.update(detections)
+                self.presence_changed.emit(present)
 
-            for event in self._timer_engine.update(present, self._clock()):
-                self._dispatch(event)
+                for event in self._timer_engine.update(present, self._clock()):
+                    self._dispatch(event)
 
-            self.timer_updated.emit(self._timer_engine.snapshot(self._clock()))
+                self.timer_updated.emit(self._timer_engine.snapshot(self._clock()))
 
-            elapsed = self._clock() - loop_start
-            if elapsed < self._detection_interval_sec:
-                time.sleep(self._detection_interval_sec - elapsed)
+                elapsed = self._clock() - loop_start
+                if elapsed < self._detection_interval_sec:
+                    time.sleep(self._detection_interval_sec - elapsed)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+        finally:
+            close = getattr(self._store, "close", None)
+            if callable(close):
+                close()
+            self._stop = True
 
     def stop(self) -> None:
         self._stop = True

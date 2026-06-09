@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 
 from src.logging_store import SessionStore
@@ -44,3 +45,27 @@ def test_log_session_persists_rest_type() -> None:
 
     assert row_id > 0
     assert row == ("rest",)
+
+
+def test_store_can_initialize_and_write_from_different_thread() -> None:
+    store = SessionStore(":memory:")
+    start = datetime(2026, 6, 9, 12, 0, 0)
+    end = datetime(2026, 6, 9, 12, 5, 0)
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            store.init_schema()
+            store.log_session("work", start, end, 300, "reset")
+            row = store._connection.execute("SELECT COUNT(*) FROM sessions").fetchone()
+            assert row == (1,)
+        except BaseException as exc:  # pragma: no cover - captured for assertion below
+            errors.append(exc)
+        finally:
+            store.close()
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join(timeout=1.0)
+
+    assert not errors

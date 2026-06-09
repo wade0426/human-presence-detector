@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import signal
 import sys
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import QThread, QTimer
 from PySide6.QtWidgets import QApplication
 
 from src.app.worker import DetectionWorker
@@ -77,6 +78,8 @@ def main() -> int:
     worker.timer_updated.connect(window.on_timer_updated)
     worker.timer_updated.connect(lambda snapshot: tray.update_status(snapshot.state))
     worker.connection_status.connect(window.on_connection_status)
+    worker.failed.connect(window.on_connection_status)
+    worker.failed.connect(lambda _message: app.quit())
     worker.reminder_show.connect(reminder.show)
     worker.reminder_repeat.connect(reminder.show)
     reminder.dismissed.connect(worker.dismiss_reminder)
@@ -88,6 +91,12 @@ def main() -> int:
     app.aboutToQuit.connect(worker.stop)
     app.aboutToQuit.connect(thread.quit)
     app.aboutToQuit.connect(thread.wait)
+
+    signal.signal(signal.SIGINT, lambda *_args: app.quit())
+    sigint_pump = QTimer()
+    sigint_pump.setInterval(200)
+    sigint_pump.timeout.connect(lambda: None)
+    sigint_pump.start()
 
     thread.start()
     tray.show()

@@ -53,6 +53,11 @@ class FakeStore:
         return len(self.rows)
 
 
+class ExplodingStore(FakeStore):
+    def init_schema(self) -> None:
+        raise RuntimeError("boom")
+
+
 class FakeClock:
     def __init__(self, start: float = 0.0, step: float = 0.6) -> None:
         self.current = start
@@ -138,3 +143,26 @@ def test_worker_emits_reminder_show_when_timer_triggers(qtbot: pytest.QtBot) -> 
         thread.start()
     worker.stop()
     thread.join(timeout=1.0)
+
+
+@pytest.mark.qt
+def test_worker_emits_failed_when_store_init_crashes(qtbot: pytest.QtBot) -> None:
+    from src.app.worker import DetectionWorker
+
+    worker = DetectionWorker(
+        source=FakeSource([_frame()]),
+        detector=FakeDetector([[]]),
+        presence_evaluator=PresenceEvaluator(BBox(0.0, 0.0, 1.0, 1.0), 0.2, 1),
+        timer_engine=TimerEngine(10.0, 5.0, 5.0, ResetMode.DETECTION, 3.0, 2.0),
+        store=ExplodingStore(),
+        detection_interval_sec=0.0,
+        reminder_context=ReminderContext(45, "", "image", ""),
+        clock=FakeClock(),
+    )
+
+    thread = threading.Thread(target=worker.run, daemon=True)
+    with qtbot.waitSignal(worker.failed, timeout=3000) as blocker:
+        thread.start()
+    thread.join(timeout=1.0)
+
+    assert blocker.args == ["boom"]
