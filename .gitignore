@@ -183,3 +183,4 @@ cython_debug/
 *.txt
 *.json
 *.png
+/data
