@@ -13,7 +13,7 @@
 - [x] **A1** `src/ui/icons.py` — 後備程式圖示（新增）
 
 ### I/O 介面卡層
-- [ ] **M6** `src/logging_store.py` — 今日彙總唯讀查詢（修改）
+- [x] **M6** `src/logging_store.py` — 今日彙總唯讀查詢（修改）
 
 ### Qt 接線層
 - [ ] **M7** `src/app/worker.py` — 豐富連線狀態（修改）

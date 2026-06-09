@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from dataclasses import dataclass
 from datetime import datetime
+
+
+@dataclass(frozen=True)
+class TodaySummary:
+    work_seconds: int
+    rest_count: int
+    work_sessions: int
 
 
 class SessionStore:
@@ -59,6 +67,37 @@ class SessionStore:
         if row_id is None:
             raise RuntimeError("SQLite did not return a row id")
         return row_id
+
+    def today_summary(self, now: datetime | None = None) -> TodaySummary:
+        today = (now or datetime.now()).strftime("%Y-%m-%d")
+        connection = self._get_connection()
+        cursor = connection.execute(
+            """
+            SELECT type,
+                   COALESCE(SUM(duration_sec), 0) AS total_sec,
+                   COUNT(*) AS cnt
+            FROM sessions
+            WHERE date(start_ts) = date(:today)
+            GROUP BY type
+            """,
+            {"today": today},
+        )
+
+        work_seconds = 0
+        work_sessions = 0
+        rest_count = 0
+        for row in cursor:
+            if row[0] == "work":
+                work_seconds = int(row[1])
+                work_sessions = int(row[2])
+            elif row[0] == "rest":
+                rest_count = int(row[2])
+
+        return TodaySummary(
+            work_seconds=work_seconds,
+            rest_count=rest_count,
+            work_sessions=work_sessions,
+        )
 
     def close(self) -> None:
         for connection in self._connections.values():
