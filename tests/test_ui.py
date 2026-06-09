@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import os
+from unittest.mock import patch
+
 import pytest
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QWidget
 
 from src.config import AppConfig
+from src.ui.settings_schema import SCHEMA
 
 
 def test_main_window_can_be_created(qtbot: pytest.QtBot) -> None:
@@ -37,13 +42,66 @@ def test_main_window_emits_normalized_roi_from_drag(qtbot: pytest.QtBot) -> None
     assert roi.h == pytest.approx(0.25, abs=0.01)
 
 
-def test_settings_dialog_can_be_created(qtbot: pytest.QtBot) -> None:
-    from src.ui.settings import SettingsDialog
+def test_settings_window_initial_values(qtbot: pytest.QtBot, tmp_path: object) -> None:
+    from src.ui.settings import SettingsWindow
 
-    dialog = SettingsDialog(AppConfig())
-    qtbot.addWidget(dialog)
+    window = SettingsWindow(AppConfig(), config_path=str(tmp_path / "cfg.yaml"))
+    qtbot.addWidget(window)
 
-    assert dialog.windowTitle() != ""
+    for spec in SCHEMA:
+        widget = window._widgets.get(spec.key)
+        if isinstance(widget, QDoubleSpinBox):
+            assert widget.minimum() == (spec.minimum or 0)
+
+
+def test_settings_window_save_invalid_blocks(qtbot: pytest.QtBot, tmp_path: object) -> None:
+    from src.ui.settings import SettingsWindow
+
+    cfg_path = tmp_path / "cfg.yaml"
+    window = SettingsWindow(AppConfig(), config_path=str(cfg_path))
+    qtbot.addWidget(window)
+
+    widget = window._widgets.get("timer.work_threshold_min")
+    if isinstance(widget, QDoubleSpinBox):
+        widget.setValue(0.0)
+
+    window._on_save()
+
+    assert not os.path.exists(cfg_path)
+
+
+def test_settings_window_save_valid_writes_file(
+    qtbot: pytest.QtBot, tmp_path: object
+) -> None:
+    from src.ui.settings import SettingsWindow
+
+    cfg_path = tmp_path / "cfg.yaml"
+    window = SettingsWindow(AppConfig(), config_path=str(cfg_path))
+    qtbot.addWidget(window)
+
+    combo = window._widgets.get("source.type")
+    if isinstance(combo, QComboBox):
+        combo.setCurrentText("webcam")
+
+    with patch("PySide6.QtWidgets.QMessageBox.information"):
+        window._on_save()
+
+    assert os.path.exists(cfg_path)
+
+
+def test_source_type_toggle(qtbot: pytest.QtBot, tmp_path: object) -> None:
+    from src.ui.settings import SettingsWindow
+
+    window = SettingsWindow(AppConfig(), config_path=str(tmp_path / "cfg.yaml"))
+    qtbot.addWidget(window)
+
+    combo = window._widgets.get("source.type")
+    if isinstance(combo, QComboBox):
+        combo.setCurrentText("webcam")
+
+    rtsp_widget = window._widgets.get("source.rtsp_url")
+    if isinstance(rtsp_widget, QWidget):
+        assert not rtsp_widget.isEnabled()
 
 
 def test_tray_icon_can_be_created() -> None:
