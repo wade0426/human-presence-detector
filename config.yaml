@@ -17,9 +17,9 @@ presence:
   min_box_height_ratio: 0.25
   debounce_count: 3
 timer:
-  work_threshold_min: 0.5
-  reset_threshold_min: 0.5
-  required_rest_min: 0.5
+  work_threshold_min: 0.1
+  reset_threshold_min: 0.1
+  required_rest_min: 0.1
   rest_count_mode: presence
 reminder:
   method: popup

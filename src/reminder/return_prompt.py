@@ -31,12 +31,9 @@ class ReturnPromptDialog(QDialog):
         layout.addWidget(self._confirm_btn)
         self.setLayout(layout)
 
-    def show_prompt(self, rest_minutes: int | None = None) -> None:
-        """Display the dialog, optionally showing how many minutes were rested."""
-        if rest_minutes is not None:
-            self._message_label.setText(f"{RETURN_BODY}（已休息 {rest_minutes} 分鐘）")
-        else:
-            self._message_label.setText(RETURN_BODY)
+    def show_prompt(self, *_unused: object) -> None:
+        """Display the dialog with the fixed return message."""
+        self._message_label.setText(RETURN_BODY)
         self.show()
 
     def closeEvent(self, event: QCloseEvent) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import threading
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -24,7 +25,7 @@ class DetectionWorker(QObject):
     presence_changed = Signal(bool)
     timer_updated = Signal(object)
     reminder_show = Signal(object)
-    return_prompt = Signal(object)
+    return_prompt = Signal()
     connection_status = Signal(str)
     failed = Signal(str)
 
@@ -53,12 +54,19 @@ class DetectionWorker(QObject):
         self._stop = False
         self._paused = False
         self._work_start_dt: datetime | None = None
+        self._command_lock = threading.Lock()
+        self._pending_start_rest = False
+        self._pending_confirm_return = False
+        self._pending_pause = False
+        self._pending_resume = False
+        self._pending_roi: BBox | None = None
 
     def run(self) -> None:
         try:
             self._store.init_schema()
             self.connection_status.emit("connecting")
             while not self._stop:
+                self._drain_pending_commands()
                 if self._paused:
                     time.sleep(0.1)
                     continue
@@ -102,6 +110,28 @@ class DetectionWorker(QObject):
     def stop(self) -> None:
         self._stop = True
 
+    def request_pause(self) -> None:
+        with self._command_lock:
+            self._pending_pause = True
+            self._pending_resume = False
+
+    def request_resume(self) -> None:
+        with self._command_lock:
+            self._pending_resume = True
+            self._pending_pause = False
+
+    def request_start_rest(self) -> None:
+        with self._command_lock:
+            self._pending_start_rest = True
+
+    def request_confirm_return(self) -> None:
+        with self._command_lock:
+            self._pending_confirm_return = True
+
+    def request_set_roi(self, roi: BBox) -> None:
+        with self._command_lock:
+            self._pending_roi = roi
+
     def pause(self) -> None:
         now = self._clock()
         self._paused = True
@@ -128,6 +158,31 @@ class DetectionWorker(QObject):
     def set_roi(self, roi: BBox) -> None:
         self._presence_evaluator.set_roi(roi)
 
+    def _drain_pending_commands(self) -> None:
+        with self._command_lock:
+            pending_pause = self._pending_pause
+            pending_resume = self._pending_resume
+            pending_start_rest = self._pending_start_rest
+            pending_confirm_return = self._pending_confirm_return
+            pending_roi = self._pending_roi
+            self._pending_pause = False
+            self._pending_resume = False
+            self._pending_start_rest = False
+            self._pending_confirm_return = False
+            self._pending_roi = None
+
+        if pending_roi is not None:
+            self.set_roi(pending_roi)
+        if pending_pause:
+            self.pause()
+        if pending_resume:
+            self.resume()
+            self.timer_updated.emit(self._timer_engine.snapshot(self._clock()))
+        if pending_start_rest:
+            self.start_rest()
+        if pending_confirm_return:
+            self.confirm_return()
+
     def _dispatch(self, event: TimerEvent) -> None:
         now_dt = datetime.now()
         if event.type in (TimerEventType.REMINDER_TRIGGERED, TimerEventType.REMINDER_REPEATED):
@@ -138,7 +193,7 @@ class DetectionWorker(QObject):
             )
             self.reminder_show.emit(ctx)
         elif event.type == TimerEventType.RETURN_PROMPT:
-            self.return_prompt.emit(self._reminder_context)
+            self.return_prompt.emit()
         elif event.type == TimerEventType.WORK_STARTED:
             self._work_start_dt = now_dt
         elif event.type == TimerEventType.WORK_ENDED:

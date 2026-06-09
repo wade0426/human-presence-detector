@@ -485,3 +485,105 @@ def test_worker_closes_store_from_worker_thread() -> None:
     thread.join(timeout=1.0)
 
     assert store.close_thread_ids == [thread.ident]
+
+
+@pytest.mark.qt
+def test_request_start_rest_is_applied_inside_run_loop(qtbot: pytest.QtBot) -> None:
+    qd = _qualifying_detection()
+    worker = _make_worker(
+        FakeFrames([_frame()] * 12),
+        detector=FakeDetector([[qd]] * 12),
+        timer_engine=TimerEngine(0.5, 5.0, 5.0, 3.0, RestCountMode.FIXED),
+        clock=FakeClock(step=0.6),
+    )
+
+    snapshots: list[Any] = []
+    worker.timer_updated.connect(snapshots.append)
+
+    thread = threading.Thread(target=worker.run, daemon=True)
+    thread.start()
+    qtbot.waitUntil(lambda: any(s.state == TimerState.REMINDING for s in snapshots), timeout=3000)
+
+    worker.request_start_rest()
+
+    qtbot.waitUntil(lambda: any(s.state == TimerState.RESTING for s in snapshots), timeout=3000)
+    worker.stop()
+    thread.join(timeout=1.0)
+
+
+@pytest.mark.qt
+def test_request_confirm_return_resumes_working_and_elapsed_ticks(qtbot: pytest.QtBot) -> None:
+    qd = _qualifying_detection()
+    no_detect: list[Detection] = []
+    detector = FakeDetector([[qd], [qd], no_detect, no_detect, [qd], [qd], [qd], [qd], [qd]])
+    worker = _make_worker(
+        FakeFrames([_frame()] * 20),
+        detector=detector,
+        timer_engine=TimerEngine(0.5, 5.0, 0.5, 3.0, RestCountMode.FIXED),
+        clock=FakeClock(step=0.6),
+    )
+
+    snapshots: list[Any] = []
+    worker.timer_updated.connect(snapshots.append)
+
+    thread = threading.Thread(target=worker.run, daemon=True)
+    with qtbot.waitSignal(worker.return_prompt, timeout=5000):
+        thread.start()
+
+    marker = len(snapshots)
+    worker.request_confirm_return()
+
+    qtbot.waitUntil(
+        lambda: any(s.state == TimerState.WORKING for s in snapshots[marker:]),
+        timeout=3000,
+    )
+    qtbot.waitUntil(
+        lambda: any(
+            s.work_elapsed_sec > 0 for s in snapshots[marker:]
+        ),
+        timeout=3000,
+    )
+    worker.stop()
+    thread.join(timeout=1.0)
+
+
+@pytest.mark.qt
+def test_request_pause_and_resume_work_while_run_loop_is_paused(qtbot: pytest.QtBot) -> None:
+    qd = _qualifying_detection()
+    worker = _make_worker(
+        FakeFrames([_frame()] * 20),
+        detector=FakeDetector([[qd]] * 20),
+        timer_engine=TimerEngine(100.0, 5.0, 5.0, 3.0),
+        clock=FakeClock(step=0.6),
+    )
+
+    snapshots: list[Any] = []
+    worker.timer_updated.connect(snapshots.append)
+
+    thread = threading.Thread(target=worker.run, daemon=True)
+    thread.start()
+    qtbot.waitUntil(lambda: any(s.state == TimerState.WORKING for s in snapshots), timeout=3000)
+
+    worker.request_pause()
+    qtbot.waitUntil(lambda: any(s.state == TimerState.SUSPENDED for s in snapshots), timeout=3000)
+
+    marker = len(snapshots)
+    worker.request_resume()
+    qtbot.waitUntil(
+        lambda: any(s.state != TimerState.SUSPENDED for s in snapshots[marker:]),
+        timeout=3000,
+    )
+    worker.stop()
+    thread.join(timeout=1.0)
+
+
+def test_request_set_roi_applies_last_value() -> None:
+    worker = _make_worker(FakeFrames([None], is_opened=False))
+    roi_a = BBox(0.1, 0.1, 0.3, 0.3)
+    roi_b = BBox(0.2, 0.2, 0.4, 0.4)
+
+    worker.request_set_roi(roi_a)
+    worker.request_set_roi(roi_b)
+    worker._drain_pending_commands()
+
+    assert worker._presence_evaluator._roi == roi_b

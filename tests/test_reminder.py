@@ -173,6 +173,41 @@ def test_return_prompt_dialog_cannot_be_closed(qtbot: pytest.QtBot) -> None:
 
 
 @pytest.mark.qt
+def test_return_prompt_dialog_show_prompt_keeps_plain_body_text(qtbot: pytest.QtBot) -> None:
+    from src.reminder.return_prompt import ReturnPromptDialog
+    from src.ui.strings import RETURN_BODY
+
+    dialog = ReturnPromptDialog()
+    qtbot.addWidget(dialog)
+
+    dialog.show_prompt()
+
+    assert dialog._message_label.text() == RETURN_BODY
+
+
+@pytest.mark.qt
+def test_return_prompt_dialog_does_not_render_reminder_context_repr(
+    qtbot: pytest.QtBot,
+) -> None:
+    from src.reminder.return_prompt import ReturnPromptDialog
+
+    dialog = ReturnPromptDialog()
+    qtbot.addWidget(dialog)
+
+    dialog.show_prompt(
+        ReminderContext(
+            work_minutes=0,
+            media_path="data/assets/rest_placeholder.png",
+            media_type="image",
+            sound_path="",
+        )
+    )
+
+    assert "ReminderContext(" not in dialog._message_label.text()
+    assert "work_minutes=" not in dialog._message_label.text()
+
+
+@pytest.mark.qt
 def test_popup_reminder_show_with_no_reset_mode_context(qtbot: pytest.QtBot) -> None:
     """ReminderContext without reset_mode/snooze_minutes can call show() without error."""
     from src.reminder.popup import PopupReminder

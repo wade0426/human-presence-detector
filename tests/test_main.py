@@ -65,3 +65,13 @@ def test_main_imports_new_modules() -> None:
     assert hasattr(src.main, "setup_logging")
     assert hasattr(src.main, "suppress_decoder_noise")
     assert hasattr(src.main, "ThemeManager")
+
+
+def test_main_uses_request_worker_apis_for_ui_commands() -> None:
+    source = inspect.getsource(src.main.main)
+
+    assert "reminder.start_rest.connect(worker.request_start_rest)" in source
+    assert "return_prompt_dialog.confirmed.connect(worker.request_confirm_return)" in source
+    assert "window.roi_changed.connect(worker.request_set_roi)" in source
+    assert "worker.request_pause()" in source
+    assert "worker.request_resume()" in source

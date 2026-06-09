@@ -118,9 +118,9 @@ def main() -> int:
     worker.return_prompt.connect(return_prompt_dialog.show_prompt)         # Req 3
     if hasattr(reminder, "start_rest"):
         # PopupReminder only: wire start_rest → worker.start_rest (Req 4)
-        reminder.start_rest.connect(worker.start_rest)
-    return_prompt_dialog.confirmed.connect(worker.confirm_return)          # Req 3
-    window.roi_changed.connect(worker.set_roi)
+        reminder.start_rest.connect(worker.request_start_rest)
+    return_prompt_dialog.confirmed.connect(worker.request_confirm_return)  # Req 3
+    window.roi_changed.connect(worker.request_set_roi)
 
     paused = False
 
@@ -128,10 +128,10 @@ def main() -> int:
         nonlocal paused
         paused = checked
         if paused:
-            worker.pause()
+            worker.request_pause()
             preview_timer.stop()   # Req 5: freeze preview
         else:
-            worker.resume()
+            worker.request_resume()
             preview_timer.start()  # Req 5: resume preview
         tray.set_paused(paused)
 
