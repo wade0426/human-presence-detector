@@ -10,7 +10,7 @@
 
 ### 基礎設施層
 - [ ] **M5** `src/logging_setup.py` — Log 設定與解碼噪音壓制（新增）
-- [ ] **A1** `src/ui/icons.py` — 後備程式圖示（新增）
+- [x] **A1** `src/ui/icons.py` — 後備程式圖示（新增）
 
 ### I/O 介面卡層
 - [ ] **M6** `src/logging_store.py` — 今日彙總唯讀查詢（修改）
