@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from src.app.connection_state import ConnectionState
 from src.types import TimerState
 
 # Settings
@@ -17,13 +18,13 @@ ERR_DEBOUNCE_MIN = "去抖動次數必須為大於等於 1 的整數。"
 ERR_MINUTE_RANGE = "分鐘數必須介於 0.1 到 9999 之間。"
 
 # Connection
-CONN_TEXT: dict[str, str] = {
-    "idle": "待機",
-    "connecting": "連線中",
-    "connected": "已連線",
-    "reconnecting": "重新連線中",
-    "no_signal": "收不到影像",
-    "error": "發生錯誤",
+CONN_TEXT: dict[ConnectionState, str] = {
+    ConnectionState.IDLE: "待機",
+    ConnectionState.CONNECTING: "連線中",
+    ConnectionState.CONNECTED: "已連線",
+    ConnectionState.RECONNECTING: "重新連線中",
+    ConnectionState.NO_SIGNAL: "收不到影像",
+    ConnectionState.ERROR: "發生錯誤",
 }
 CONN_NO_SIGNAL = "目前收不到影像。請確認攝影機或串流來源後再試一次。"
 CONN_RECONNECTING = "連線中斷，正在重新連線…"
@@ -37,6 +38,15 @@ STATE_TEXT: dict[TimerState, str] = {
     TimerState.PAUSED: "短暫離開",
     TimerState.REMINDING: "提醒中",
 }
+
+
+def connection_state_text(state: ConnectionState) -> str:
+    return CONN_TEXT[state]
+
+
+def timer_state_text(state: TimerState) -> str:
+    return STATE_TEXT[state]
+
 
 # Reminders
 REMIND_TITLE = "該休息一下了"

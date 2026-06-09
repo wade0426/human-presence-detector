@@ -7,18 +7,14 @@ from PySide6.QtCore import QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QPixmap
 from PySide6.QtWidgets import QLabel, QMainWindow, QVBoxLayout, QWidget
 
+from src.app.connection_state import ConnectionState, from_status
 from src.config import AppConfig
 from src.types import BBox, Frame, TimerSnapshot, TimerState
+from src.ui import strings
 
 
 def _state_text(state: TimerState) -> str:
-    mapping = {
-        TimerState.IDLE: "待機",
-        TimerState.WORKING: "工作中",
-        TimerState.PAUSED: "短暫離開",
-        TimerState.REMINDING: "提醒中",
-    }
-    return mapping[state]
+    return strings.timer_state_text(state)
 
 
 class PreviewLabel(QLabel):
@@ -155,8 +151,9 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"狀態：{self._status_text}")
         self.timer_label.setText(f"計時：{self._timer_text}")
 
-    def on_connection_status(self, status: str) -> None:
-        text = "已連線" if status == "connected" else "重新連線中"
+    def on_connection_status(self, status: str | ConnectionState) -> None:
+        state = from_status(status) if isinstance(status, str) else status
+        text = strings.connection_state_text(state)
         self.connection_label.setText(f"連線：{text}")
 
     def closeEvent(self, event: QCloseEvent) -> None:

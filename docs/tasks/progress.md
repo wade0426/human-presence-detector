@@ -6,7 +6,7 @@
 - [ ] **M1** `src/config.py` — 分鐘欄位驗證強化
 - [ ] **M2** `src/ui/settings_schema.py` — 設定欄位中繼資料（新增）
 - [x] **M3** `src/ui/strings.py` — UI 文案集中（新增）
-- [ ] **M4** `src/app/connection_state.py` — 連線狀態模型（新增）
+- [x] **M4** `src/app/connection_state.py` — 連線狀態模型（新增）
 
 ### 基礎設施層
 - [ ] **M5** `src/logging_setup.py` — Log 設定與解碼噪音壓制（新增）

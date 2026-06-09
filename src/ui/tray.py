@@ -4,6 +4,7 @@ from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 from src.types import TimerState
+from src.ui import strings
 
 
 class TrayIcon(QSystemTrayIcon):
@@ -30,13 +31,7 @@ class TrayIcon(QSystemTrayIcon):
         self.open_action.triggered.connect(window.activateWindow)
 
     def update_status(self, state: TimerState) -> None:
-        mapping = {
-            TimerState.IDLE: "待機",
-            TimerState.WORKING: "工作中",
-            TimerState.PAUSED: "短暫離開",
-            TimerState.REMINDING: "提醒中",
-        }
-        self.setToolTip(f"人體辨識休息提醒系統 - {mapping[state]}")
+        self.setToolTip(f"人體辨識休息提醒系統 - {strings.timer_state_text(state)}")
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if (
