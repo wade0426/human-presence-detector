@@ -19,7 +19,7 @@
 - [x] **M7** `src/app/worker.py` — 豐富連線狀態（修改）
 
 ### Qt UI 層
-- [ ] **M8** `src/ui/theme.py` — 主題管理（新增）
+- [x] **M8** `src/ui/theme.py` — 主題管理（新增）
 - [ ] **M9** `src/ui/settings.py` — 設定視窗重構
 - [ ] **M10** `src/ui/main_window.py` + `src/ui/widgets/` — 主視窗重構
 - [ ] **M11** `src/ui/tray.py` — 系統匣修正（修改）
