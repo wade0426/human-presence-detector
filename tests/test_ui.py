@@ -8,38 +8,61 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QWidget
 
 from src.config import AppConfig
+from src.logging_store import TodaySummary
+from src.types import TimerSnapshot, TimerState
 from src.ui.settings_schema import SCHEMA
 
 
-def test_main_window_can_be_created(qtbot: pytest.QtBot) -> None:
+class FakeSummaryStore:
+    def __init__(self, summary: TodaySummary | None = None) -> None:
+        self._summary = summary or TodaySummary(0, 0, 0)
+
+    def today_summary(self) -> TodaySummary:
+        return self._summary
+
+
+def test_main_window_can_be_created(qtbot: pytest.QtBot, tmp_path: object) -> None:
     from src.ui.main_window import MainWindow
 
-    window = MainWindow(AppConfig())
+    window = MainWindow(
+        AppConfig(),
+        FakeSummaryStore(),
+        config_path=str(tmp_path / "main-window.yaml"),
+    )
     qtbot.addWidget(window)
 
-    assert window.preview_label is not None
+    assert window._preview is not None
 
 
-def test_main_window_emits_normalized_roi_from_drag(qtbot: pytest.QtBot) -> None:
+def test_main_window_emits_normalized_roi_from_drag(
+    qtbot: pytest.QtBot, tmp_path: object
+) -> None:
     from src.types import BBox
     from src.ui.main_window import MainWindow
 
-    window = MainWindow(AppConfig())
+    window = MainWindow(
+        AppConfig(),
+        FakeSummaryStore(),
+        config_path=str(tmp_path / "main-window.yaml"),
+    )
     qtbot.addWidget(window)
+    window.resize(900, 700)
     window.show()
-    window.preview_label.resize(500, 400)
+    window._preview.set_edit_mode(True)
 
     with qtbot.waitSignal(window.roi_changed, timeout=3000) as blocker:
-        qtbot.mousePress(window.preview_label, Qt.MouseButton.LeftButton, pos=QPoint(10, 20))
-        qtbot.mouseMove(window.preview_label, QPoint(110, 120))
-        qtbot.mouseRelease(window.preview_label, Qt.MouseButton.LeftButton, pos=QPoint(110, 120))
+        qtbot.mousePress(window._preview, Qt.MouseButton.LeftButton, pos=QPoint(10, 20))
+        qtbot.mouseMove(window._preview, QPoint(110, 120))
+        qtbot.mouseRelease(window._preview, Qt.MouseButton.LeftButton, pos=QPoint(110, 120))
 
     roi = blocker.args[0]
+    width = max(window._preview.width(), 1)
+    height = max(window._preview.height(), 1)
     assert isinstance(roi, BBox)
-    assert roi.x == pytest.approx(0.02, abs=0.01)
-    assert roi.y == pytest.approx(0.05, abs=0.01)
-    assert roi.w == pytest.approx(0.2, abs=0.01)
-    assert roi.h == pytest.approx(0.25, abs=0.01)
+    assert roi.x == pytest.approx(10 / width, abs=0.01)
+    assert roi.y == pytest.approx(20 / height, abs=0.01)
+    assert roi.w == pytest.approx(100 / width, abs=0.01)
+    assert roi.h == pytest.approx(100 / height, abs=0.01)
 
 
 def test_settings_window_initial_values(qtbot: pytest.QtBot, tmp_path: object) -> None:
@@ -148,3 +171,60 @@ def test_tray_tooltip_updates_with_state(qtbot: pytest.QtBot) -> None:
     tooltip = tray.toolTip()
     assert "工作中" in tooltip
     assert "已連線" in tooltip
+
+
+def test_status_strip_displays_state(qtbot: pytest.QtBot) -> None:
+    from src.ui.widgets.status_strip import StatusStrip
+
+    strip = StatusStrip()
+    qtbot.addWidget(strip)
+    snapshot = TimerSnapshot(
+        state=TimerState.WORKING,
+        work_elapsed_sec=90.0,
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=2610.0,
+        reminder_active=False,
+    )
+
+    strip.update_snapshot(snapshot, work_threshold_sec=2700.0)
+
+    assert "工作中" in strip._state_label.text()
+    assert "01:30" in strip._time_label.text()
+
+
+def test_connection_badge_has_text_and_icon(qtbot: pytest.QtBot) -> None:
+    from src.app.connection_state import ConnectionState
+    from src.ui.widgets.connection_badge import ConnectionBadge
+
+    badge = ConnectionBadge()
+    qtbot.addWidget(badge)
+    badge.set_state(ConnectionState.CONNECTED)
+
+    assert badge._text_label.text() == "已連線"
+    assert badge._icon_label.text() != ""
+
+
+def test_today_summary_view_empty_state(qtbot: pytest.QtBot) -> None:
+    from src.ui.strings import TODAY_EMPTY
+    from src.ui.widgets.today_summary_view import TodaySummaryView
+
+    view = TodaySummaryView()
+    qtbot.addWidget(view)
+    view.set_summary(TodaySummary(0, 0, 0))
+
+    assert TODAY_EMPTY in view._work_label.text()
+
+
+def test_preview_view_no_roi_in_non_edit_mode(qtbot: pytest.QtBot) -> None:
+    from src.ui.widgets.preview_view import PreviewView
+
+    view = PreviewView()
+    qtbot.addWidget(view)
+    view.set_edit_mode(False)
+    signals: list[object] = []
+    view.roi_committed.connect(signals.append)
+
+    qtbot.mousePress(view, Qt.MouseButton.LeftButton, pos=QPoint(10, 10))
+    qtbot.mouseRelease(view, Qt.MouseButton.LeftButton, pos=QPoint(100, 100))
+
+    assert len(signals) == 0
