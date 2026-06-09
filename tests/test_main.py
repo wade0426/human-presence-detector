@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import inspect
+
+import src.main
 from src.main import _shutdown_worker_thread
 
 
@@ -51,3 +54,14 @@ def test_shutdown_worker_thread_terminates_when_thread_does_not_exit() -> None:
     assert thread.quit_calls == 1
     assert thread.wait_calls == [1500, 500]
     assert thread.terminate_calls == 1
+
+
+def test_failed_signal_not_connected_to_quit() -> None:
+    source = inspect.getsource(src.main.main)
+    assert "worker.failed.connect(lambda _message: app.quit())" not in source
+
+
+def test_main_imports_new_modules() -> None:
+    assert hasattr(src.main, "setup_logging")
+    assert hasattr(src.main, "suppress_decoder_noise")
+    assert hasattr(src.main, "ThemeManager")

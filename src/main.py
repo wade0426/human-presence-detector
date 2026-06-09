@@ -6,17 +6,20 @@ import sys
 from PySide6.QtCore import QThread, QTimer
 from PySide6.QtWidgets import QApplication
 
+from src.app.connection_state import from_status
 from src.app.worker import DetectionWorker
 from src.capture.video_source import create_source
 from src.config import AppConfig, load_config
 from src.detection.detector import PersonDetector
+from src.logging_setup import setup_logging, suppress_decoder_noise
 from src.logging_store import SessionStore
 from src.presence import PresenceEvaluator
 from src.reminder.factory import create_reminder
 from src.timer_engine import TimerEngine
 from src.types import ReminderContext
 from src.ui.main_window import MainWindow
-from src.ui.settings import SettingsDialog
+from src.ui.settings import SettingsWindow
+from src.ui.theme import ThemeManager
 from src.ui.tray import TrayIcon
 
 
@@ -28,7 +31,7 @@ def _shutdown_worker_thread(worker: DetectionWorker, thread: QThread) -> None:
         thread.wait(500)
 
 
-def _build_worker(cfg: AppConfig) -> DetectionWorker:
+def _build_worker(cfg: AppConfig, store: SessionStore) -> DetectionWorker:
     source = create_source(cfg.source)
     detector = PersonDetector(
         cfg.detection.model_path,
@@ -48,12 +51,13 @@ def _build_worker(cfg: AppConfig) -> DetectionWorker:
         cfg.reminder.repeat_interval_min * 60.0,
         cfg.reminder.snooze_min * 60.0,
     )
-    store = SessionStore(cfg.logging.db_path)
     reminder_context = ReminderContext(
         work_minutes=int(cfg.timer.work_threshold_min),
         media_path=cfg.reminder.popup.media_path,
         media_type=cfg.reminder.popup.media_type,
         sound_path=cfg.reminder.popup.sound_path,
+        reset_mode=cfg.reminder.reset_mode.value,
+        snooze_minutes=int(cfg.reminder.snooze_min),
     )
     return DetectionWorker(
         source=source,
@@ -67,34 +71,51 @@ def _build_worker(cfg: AppConfig) -> DetectionWorker:
 
 
 def main() -> int:
-    app = QApplication.instance() or QApplication(sys.argv)
+    suppress_decoder_noise()
+    setup_logging()
+    existing_app = QApplication.instance()
+    app = existing_app if isinstance(existing_app, QApplication) else QApplication(sys.argv)
+    ThemeManager(app).apply()
     cfg = load_config("config.yaml")
+    store = SessionStore(cfg.logging.db_path)
 
-    worker = _build_worker(cfg)
+    worker = _build_worker(cfg, store)
     thread = QThread()
     worker.moveToThread(thread)
     thread.started.connect(worker.run)
 
-    window = MainWindow(cfg)
+    window = MainWindow(cfg, store, "config.yaml")
     tray = TrayIcon()
     tray.bind_window(window)
     reminder = create_reminder(cfg.reminder, tray)
-    settings_dialog = SettingsDialog(cfg, window)
+    settings = SettingsWindow(cfg, "config.yaml", window)
 
     worker.frame_ready.connect(window.on_frame_ready)
     worker.presence_changed.connect(window.on_presence_changed)
     worker.timer_updated.connect(window.on_timer_updated)
-    worker.timer_updated.connect(lambda snapshot: tray.update_status(snapshot.state))
+    worker.timer_updated.connect(lambda snapshot: tray.set_timer_state(snapshot.state))
     worker.connection_status.connect(window.on_connection_status)
-    worker.failed.connect(window.on_connection_status)
-    worker.failed.connect(lambda _message: app.quit())
+    worker.connection_status.connect(lambda status: tray.set_connection(from_status(status)))
+    worker.failed.connect(window.on_failed)
     worker.reminder_show.connect(reminder.show)
     worker.reminder_repeat.connect(reminder.show)
     reminder.dismissed.connect(worker.dismiss_reminder)
     window.roi_changed.connect(worker.set_roi)
 
-    tray.settings_action.triggered.connect(settings_dialog.show)
-    tray.toggle_action.triggered.connect(worker.pause)
+    paused = False
+
+    def _toggle_pause() -> None:
+        nonlocal paused
+        paused = not paused
+        if paused:
+            worker.pause()
+        else:
+            worker.resume()
+        tray.set_paused(paused)
+
+    tray.settings_action.triggered.connect(settings.show)
+    window.request_settings.connect(settings.show)
+    tray.toggle_action.triggered.connect(_toggle_pause)
     tray.quit_action.triggered.connect(app.quit)
     app.aboutToQuit.connect(lambda: _shutdown_worker_thread(worker, thread))
 

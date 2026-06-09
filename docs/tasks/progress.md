@@ -26,7 +26,7 @@
 - [x] **M12** `src/reminder/media.py` + `src/reminder/*` — 提醒統一與媒體降級
 
 ### 入口層
-- [ ] **M13** `src/main.py` — 組裝與接線（修改）
+- [x] **M13** `src/main.py` — 組裝與接線（修改）
 
 ---
 
