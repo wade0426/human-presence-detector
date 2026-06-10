@@ -10,10 +10,10 @@ detection:
   device: auto
 presence:
   roi:
-  - 0.28761061946902655
-  - 0.12063492063492064
-  - 0.4247787610619469
-  - 0.7587301587301587
+  - 0.2989949748743719
+  - 0.13978494623655913
+  - 0.41708542713567837
+  - 0.7455197132616488
   min_box_height_ratio: 0.25
   debounce_count: 3
 timer:
@@ -28,7 +28,7 @@ reminder:
   popup:
     media_path: data/assets/rest_placeholder.png
     media_type: image
-    sound_path: ''
+    sound_path: D:/Code/Python/human-presence-detector/data/assets/Radar.mp3
   floating:
     position: top-right
 logging:
