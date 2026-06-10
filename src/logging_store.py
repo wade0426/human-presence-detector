@@ -99,6 +99,24 @@ class SessionStore:
             work_sessions=work_sessions,
         )
 
+    def clear_today(self, now: datetime | None = None) -> int:
+        self.init_schema()
+        today = (now or datetime.now()).strftime("%Y-%m-%d")
+        connection = self._get_connection()
+        cursor = connection.execute(
+            "DELETE FROM sessions WHERE date(start_ts) = date(:today)",
+            {"today": today},
+        )
+        connection.commit()
+        return cursor.rowcount
+
+    def clear_all(self) -> int:
+        self.init_schema()
+        connection = self._get_connection()
+        cursor = connection.execute("DELETE FROM sessions")
+        connection.commit()
+        return cursor.rowcount
+
     def close(self) -> None:
         """僅關閉『呼叫端執行緒』自己建立的連線；其他執行緒連線不動。
 

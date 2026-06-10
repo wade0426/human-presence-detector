@@ -4,7 +4,7 @@ from typing import Protocol
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QPushButton, QVBoxLayout, QWidget
 
 from src.app.connection_state import ConnectionState, from_status
 from src.config import AppConfig, save_config
@@ -12,7 +12,7 @@ from src.logging_store import TodaySummary
 from src.today_work_model import TodayWorkModel
 from src.types import BBox, Frame, TimerSnapshot
 from src.ui.settings_schema import set_value
-from src.ui.strings import CONN_ERROR_PREFIX, CONN_TEXT
+from src.ui.strings import CLEAR_DATA_BUTTON, CONN_ERROR_PREFIX, CONN_TEXT
 from src.ui.widgets.action_bar import ActionBar
 from src.ui.widgets.connection_badge import ConnectionBadge
 from src.ui.widgets.presence_badge import PresenceBadge
@@ -34,6 +34,7 @@ class MainWindow(QMainWindow):
     roi_changed = Signal(object)
     request_pause = Signal(bool)
     request_settings = Signal()
+    clear_data_requested = Signal()
 
     def __init__(
         self,
@@ -72,6 +73,8 @@ class MainWindow(QMainWindow):
         self._presence_badge = PresenceBadge()
         self._summary = TodaySummaryView()
         self._actions = ActionBar()
+        self._clear_data_btn = QPushButton(CLEAR_DATA_BUTTON)
+        self._clear_data_btn.clicked.connect(self.clear_data_requested.emit)
 
         top_bar = QHBoxLayout()
         top_bar.addStretch()
@@ -80,6 +83,7 @@ class MainWindow(QMainWindow):
 
         middle_bar = QHBoxLayout()
         middle_bar.addWidget(self._summary, stretch=1)
+        middle_bar.addWidget(self._clear_data_btn)
 
         main_layout = QVBoxLayout(central)
         main_layout.addLayout(top_bar)

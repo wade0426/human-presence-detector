@@ -244,3 +244,30 @@ def test_qthread_popup_start_rest_bridge_enters_resting(qtbot: pytest.QtBot) -> 
         )
     finally:
         _stop_worker_thread(worker, thread)
+
+
+# ---------------------------------------------------------------------------
+# INT Tests — _maybe_build_force_lock
+# ---------------------------------------------------------------------------
+
+
+def test_maybe_build_force_lock_returns_none_when_disabled() -> None:
+    from src.config import AppConfig, ForceLockConfig
+    from src.main import _maybe_build_force_lock
+
+    cfg = AppConfig(force_lock=ForceLockConfig(enabled=False))
+
+    assert _maybe_build_force_lock(cfg) is None
+
+
+@pytest.mark.qt
+def test_maybe_build_force_lock_returns_controller_when_enabled(qtbot: pytest.QtBot) -> None:
+    from src.app.force_lock_controller import ForceLockController
+    from src.config import AppConfig, ForceLockConfig
+    from src.main import _maybe_build_force_lock
+
+    cfg = AppConfig(force_lock=ForceLockConfig(enabled=True))
+
+    controller = _maybe_build_force_lock(cfg)
+
+    assert isinstance(controller, ForceLockController)

@@ -181,6 +181,77 @@ def test_close_is_idempotent_same_thread() -> None:
     store.close()
 
 
+# ---------------------------------------------------------------------------
+# M2a 清除歷史紀錄方法測試
+# ---------------------------------------------------------------------------
+
+
+def test_clear_today_removes_only_today(tmp_path: object) -> None:
+    """clear_today() 只刪除今日紀錄，不影響其他日期的資料。"""
+    store = SessionStore(str(tmp_path / "records.sqlite"))
+    today = datetime(2024, 3, 10, 12, 0, 0)
+    yesterday = datetime(2024, 3, 9, 10, 0, 0)
+    try:
+        store.init_schema()
+        # 寫入今日一列
+        store.log_session("work", today, today, 100, "auto")
+        # 寫入昨日一列（先 log 再 UPDATE start_ts）
+        row_id = store.log_session("work", today, today, 200, "auto")
+        connection = store._get_connection()
+        connection.execute(
+            "UPDATE sessions SET start_ts = ?, end_ts = ? WHERE id = ?",
+            (yesterday.isoformat(), yesterday.isoformat(), row_id),
+        )
+        connection.commit()
+
+        # 呼叫 clear_today
+        deleted = store.clear_today(now=today)
+
+        # 今日列被刪除（共 1 列）
+        assert deleted == 1
+        # 今日 work_seconds 已清空
+        summary = store.today_summary(now=today)
+        assert summary.work_seconds == 0
+        # 昨日列仍存在
+        total = connection.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        assert total == 1
+    finally:
+        store.close()
+
+
+def test_clear_all_empties_table(tmp_path: object) -> None:
+    """clear_all() 刪除所有紀錄，today_summary() 全部歸零。"""
+    store = SessionStore(str(tmp_path / "records.sqlite"))
+    today = datetime(2024, 3, 10, 12, 0, 0)
+    yesterday = datetime(2024, 3, 9, 10, 0, 0)
+    try:
+        store.init_schema()
+        store.log_session("work", today, today, 100, "auto")
+        store.log_session("rest", today, today, 60, "auto")
+        store.log_session("work", yesterday, yesterday, 200, "auto")
+
+        deleted = store.clear_all()
+
+        assert deleted == 3
+        summary = store.today_summary(now=today)
+        assert summary.work_seconds == 0
+        assert summary.rest_count == 0
+        assert summary.work_sessions == 0
+    finally:
+        store.close()
+
+
+def test_clear_today_on_empty_table(tmp_path: object) -> None:
+    """clear_today() 在空資料庫（未呼叫 init_schema）時不丟例外，回傳 0。"""
+    store = SessionStore(str(tmp_path / "records.sqlite"))
+    try:
+        # 不呼叫 init_schema，clear_today 內部應自動建立 schema
+        deleted = store.clear_today()
+        assert deleted == 0
+    finally:
+        store.close()
+
+
 def test_close_no_cross_thread_programming_error(tmp_path: object) -> None:
     """完整模擬：主執行緒讀取統計，worker 執行緒寫入後 close，全程無 ProgrammingError。"""
     import sqlite3

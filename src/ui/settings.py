@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -32,6 +33,7 @@ from src.ui.settings_schema import (
     fields_for,
     get_value,
     set_value,
+    tooltip_for,
 )
 
 
@@ -55,6 +57,8 @@ class PathField(QWidget):
 
 
 class SettingsWindow(QDialog):
+    clear_data_requested = Signal()
+
     def __init__(
         self,
         config: AppConfig,
@@ -129,6 +133,10 @@ class SettingsWindow(QDialog):
             widget = self._make_widget(spec)
             self._widgets[spec.key] = widget
 
+            tooltip = tooltip_for(spec)
+            if isinstance(widget, QWidget):
+                widget.setToolTip(tooltip)
+
             hint = QLabel(spec.hint)
             hint.setProperty("role", "secondary")
             hint.setWordWrap(True)
@@ -143,7 +151,15 @@ class SettingsWindow(QDialog):
 
             field_container = QWidget()
             field_container.setLayout(field_layout)
-            form.addRow(spec.label, field_container)
+
+            label = QLabel(spec.label)
+            label.setToolTip(tooltip)
+            form.addRow(label, field_container)
+
+        if category == "紀錄":
+            clear_button = QPushButton(strings.CLEAR_DATA_BUTTON)
+            clear_button.clicked.connect(self.clear_data_requested.emit)
+            form.addRow(clear_button)
 
         scroll.setWidget(container)
         return scroll

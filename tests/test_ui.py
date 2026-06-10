@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QWidget
+from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QPushButton, QWidget
 
 from src.config import AppConfig
 from src.logging_store import TodaySummary
@@ -640,3 +640,61 @@ def test_main_window_stream_error_shows_overlay_and_clears_presence(
 
     assert window._presence_badge._text_label.text() == "無人"
     assert window._preview._label.text() == "影像異常"
+
+
+# ---------------------------------------------------------------------------
+# M4 Tests — tooltip and clear button
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.qt
+def test_settings_widgets_have_tooltip(qtbot: pytest.QtBot, tmp_path: object) -> None:
+    from src.config import AppConfig
+    from src.ui.settings import SettingsWindow
+
+    window = SettingsWindow(AppConfig(), config_path=str(tmp_path / "config.yaml"))
+    qtbot.addWidget(window)
+
+    for key in ("reminder.method", "force_lock.enabled", "timer.rest_count_mode"):
+        widget = window._widgets[key]
+        assert isinstance(widget, QWidget)
+        assert widget.toolTip() != "", f"Widget for {key} has no tooltip"
+
+
+@pytest.mark.qt
+def test_settings_has_clear_button(qtbot: pytest.QtBot, tmp_path: object) -> None:
+    from src.config import AppConfig
+    from src.ui.settings import SettingsWindow
+    from src.ui.settings_schema import CATEGORIES
+    from src.ui.strings import CLEAR_DATA_BUTTON
+
+    window = SettingsWindow(AppConfig(), config_path=str(tmp_path / "config.yaml"))
+    qtbot.addWidget(window)
+
+    record_index = list(CATEGORIES).index("紀錄")
+    page = window._stack.widget(record_index)
+    buttons = [b for b in page.findChildren(QPushButton) if b.text() == CLEAR_DATA_BUTTON]
+    assert len(buttons) == 1
+
+    with qtbot.waitSignal(window.clear_data_requested, timeout=1000):
+        qtbot.mouseClick(buttons[0], Qt.MouseButton.LeftButton)
+
+
+# ---------------------------------------------------------------------------
+# INT Tests — clear_data_requested signal from MainWindow
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.qt
+def test_main_window_emits_clear_requested(qtbot: pytest.QtBot, tmp_path: object) -> None:
+    from src.ui.main_window import MainWindow
+
+    window = MainWindow(
+        AppConfig(),
+        FakeSummaryStore(),
+        config_path=str(tmp_path / "main-window.yaml"),
+    )
+    qtbot.addWidget(window)
+
+    with qtbot.waitSignal(window.clear_data_requested, timeout=1000):
+        qtbot.mouseClick(window._clear_data_btn, Qt.MouseButton.LeftButton)

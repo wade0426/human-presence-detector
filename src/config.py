@@ -56,12 +56,19 @@ class FloatingConfig:
 
 
 @dataclass
+class ReturnSoundConfig:
+    enabled: bool = False
+    sound_path: str = "data/assets/Radar.mp3"
+
+
+@dataclass
 class ReminderConfig:
     method: str = "popup"
     repeat_interval_min: float = 2.0
     reminding_display_mode: str = "overtime"  # "overtime" | "work_and_reminder"
     popup: PopupConfig = field(default_factory=PopupConfig)
     floating: FloatingConfig = field(default_factory=FloatingConfig)
+    return_sound: ReturnSoundConfig = field(default_factory=ReturnSoundConfig)
 
 
 @dataclass
@@ -76,6 +83,15 @@ class UIConfig:
 
 
 @dataclass
+class ForceLockConfig:
+    enabled: bool = False
+    trigger: str = "overtime"          # "overtime" | "on_rest"
+    overtime_threshold_min: float = 10.0
+    warning_mode: str = "immediate"    # "countdown_cancel" | "countdown_only" | "immediate"
+    countdown_sec: int = 10
+
+
+@dataclass
 class AppConfig:
     source: SourceConfig = field(default_factory=SourceConfig)
     detection: DetectionConfig = field(default_factory=DetectionConfig)
@@ -84,6 +100,7 @@ class AppConfig:
     reminder: ReminderConfig = field(default_factory=ReminderConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    force_lock: ForceLockConfig = field(default_factory=ForceLockConfig)
 
 
 class ConfigError(Exception):
@@ -152,6 +169,29 @@ def validate(raw: dict[str, Any]) -> list[str]:
     if media_type not in {"image", "video"}:
         errors.append("reminder.popup.media_type must be one of: image, video")
 
+    force_lock = _section(raw, "force_lock")
+    trigger = force_lock.get("trigger", ForceLockConfig.trigger)
+    if trigger not in {"overtime", "on_rest"}:
+        errors.append("force_lock.trigger must be one of: overtime, on_rest")
+
+    warning_mode = force_lock.get("warning_mode", ForceLockConfig.warning_mode)
+    if warning_mode not in {"countdown_cancel", "countdown_only", "immediate"}:
+        errors.append(
+            "force_lock.warning_mode must be one of: countdown_cancel, countdown_only, immediate"
+        )
+
+    overtime_threshold_min = force_lock.get(
+        "overtime_threshold_min", ForceLockConfig.overtime_threshold_min
+    )
+    if not _in_range(overtime_threshold_min, min_value=MINUTE_MIN, max_value=MINUTE_MAX):
+        errors.append(
+            f"force_lock.overtime_threshold_min must satisfy {MINUTE_MIN} <= value <= {MINUTE_MAX}"
+        )
+
+    countdown_sec = force_lock.get("countdown_sec", ForceLockConfig.countdown_sec)
+    if not isinstance(countdown_sec, int) or isinstance(countdown_sec, bool) or countdown_sec < 1:
+        errors.append("force_lock.countdown_sec must be an integer >= 1")
+
     return errors
 
 
@@ -207,8 +247,10 @@ def _app_config_from_dict(raw: dict[str, Any]) -> AppConfig:
     reminder_raw = _section(raw, "reminder")
     popup_raw = _section(reminder_raw, "popup")
     floating_raw = _section(reminder_raw, "floating")
+    return_sound_raw = _section(reminder_raw, "return_sound")
     logging_raw = _section(raw, "logging")
     ui_raw = _section(raw, "ui")
+    force_lock_raw = _section(raw, "force_lock")
 
     return AppConfig(
         source=SourceConfig(
@@ -272,6 +314,10 @@ def _app_config_from_dict(raw: dict[str, Any]) -> AppConfig:
             floating=FloatingConfig(
                 position=str(floating_raw.get("position", FloatingConfig.position))
             ),
+            return_sound=ReturnSoundConfig(
+                enabled=bool(return_sound_raw.get("enabled", ReturnSoundConfig.enabled)),
+                sound_path=str(return_sound_raw.get("sound_path", ReturnSoundConfig.sound_path)),
+            ),
         ),
         logging=LoggingConfig(
             enabled=bool(logging_raw.get("enabled", LoggingConfig.enabled)),
@@ -279,6 +325,19 @@ def _app_config_from_dict(raw: dict[str, Any]) -> AppConfig:
         ),
         ui=UIConfig(
             start_minimized=bool(ui_raw.get("start_minimized", UIConfig.start_minimized))
+        ),
+        force_lock=ForceLockConfig(
+            enabled=bool(force_lock_raw.get("enabled", ForceLockConfig.enabled)),
+            trigger=str(force_lock_raw.get("trigger", ForceLockConfig.trigger)),
+            overtime_threshold_min=float(
+                force_lock_raw.get(
+                    "overtime_threshold_min", ForceLockConfig.overtime_threshold_min
+                )
+            ),
+            warning_mode=str(force_lock_raw.get("warning_mode", ForceLockConfig.warning_mode)),
+            countdown_sec=int(
+                force_lock_raw.get("countdown_sec", ForceLockConfig.countdown_sec)
+            ),
         ),
     )
 

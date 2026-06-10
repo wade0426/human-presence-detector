@@ -95,3 +95,17 @@ QUIT_CONFIRM_BODY = "確定要關閉系統嗎？"
 RETURN_TITLE = "歡迎回來"
 RETURN_BODY = "休息結束，要開始新一輪工作嗎？"
 RETURN_CONFIRM = "開始新一輪"
+
+# Clear data (M2c)
+CLEAR_DATA_BUTTON = "清除資料"
+CLEAR_DATA_TITLE = "清除資料"
+CLEAR_SCOPE_TODAY = "清除今日紀錄"
+CLEAR_SCOPE_ALL = "清除全部紀錄"
+CLEAR_SCOPE_RESET = "清除全部紀錄並重設設定"
+CLEAR_RESET_WARNING = "此選項將清空所有紀錄，並將設定回復為預設值，此操作無法復原。"
+CLEAR_CONFIRM_BODY = "此操作無法復原，確定要繼續嗎？"
+CLEAR_DONE = "已清除 {count} 筆紀錄。"
+
+# Force lock (M3)
+FORCE_LOCK_COUNTDOWN = "{seconds} 秒後將鎖定畫面，請準備休息。"
+FORCE_LOCK_CANCEL = "取消本次鎖定"

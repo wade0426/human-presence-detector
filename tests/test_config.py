@@ -248,3 +248,95 @@ def test_validate_reminding_display_mode_valid(mode: str) -> None:
     )
     assert not any("reminding_display_mode" in e for e in errors)
 
+
+# ---------------------------------------------------------------------------
+# M0 tests: ReturnSoundConfig & ForceLockConfig
+# ---------------------------------------------------------------------------
+
+
+def test_return_sound_defaults() -> None:
+    """ReturnSoundConfig default values: enabled=False, sound_path='data/assets/Radar.mp3'."""
+    from src.config import ReminderConfig
+
+    rs = ReminderConfig().return_sound
+    assert rs.enabled is False
+    assert rs.sound_path == "data/assets/Radar.mp3"
+
+
+def test_force_lock_defaults() -> None:
+    """AppConfig().force_lock has correct default values for all five fields."""
+
+    fl = AppConfig().force_lock
+    assert fl.enabled is False
+    assert fl.trigger == "overtime"
+    assert fl.overtime_threshold_min == 10.0
+    assert fl.warning_mode == "immediate"
+    assert fl.countdown_sec == 10
+
+
+def test_validate_force_lock_trigger_invalid() -> None:
+    """validate() must report an error when force_lock.trigger is invalid."""
+    errors = validate(
+        {
+            "source": {"type": "webcam"},
+            "force_lock": {"trigger": "bad"},
+        }
+    )
+    assert any("force_lock.trigger" in e for e in errors)
+
+
+def test_validate_force_lock_warning_mode_invalid() -> None:
+    """validate() must report an error when force_lock.warning_mode is invalid."""
+    errors = validate(
+        {
+            "source": {"type": "webcam"},
+            "force_lock": {"warning_mode": "bad"},
+        }
+    )
+    assert any("force_lock.warning_mode" in e for e in errors)
+
+
+def test_validate_countdown_sec_min() -> None:
+    """validate() reports error for countdown_sec=0, but not for countdown_sec=1."""
+    errors_zero = validate(
+        {
+            "source": {"type": "webcam"},
+            "force_lock": {"countdown_sec": 0},
+        }
+    )
+    assert any("force_lock.countdown_sec" in e for e in errors_zero)
+
+    errors_one = validate(
+        {
+            "source": {"type": "webcam"},
+            "force_lock": {"countdown_sec": 1},
+        }
+    )
+    assert not any("force_lock.countdown_sec" in e for e in errors_one)
+
+
+def test_roundtrip_serialize_force_lock(tmp_path: Path) -> None:
+    """save -> load preserves force_lock and reminder.return_sound values."""
+    config = AppConfig()
+    config.source.type = "webcam"
+    config.force_lock.enabled = True
+    config.force_lock.trigger = "on_rest"
+    config.force_lock.overtime_threshold_min = 15.0
+    config.force_lock.warning_mode = "countdown_cancel"
+    config.force_lock.countdown_sec = 30
+    config.reminder.return_sound.enabled = True
+    config.reminder.return_sound.sound_path = "data/assets/custom.mp3"
+
+    path = tmp_path / "force-lock-rt.yaml"
+    save_config(config, str(path))
+
+    reloaded = load_config(str(path))
+
+    assert reloaded.force_lock.enabled is True
+    assert reloaded.force_lock.trigger == "on_rest"
+    assert reloaded.force_lock.overtime_threshold_min == 15.0
+    assert reloaded.force_lock.warning_mode == "countdown_cancel"
+    assert reloaded.force_lock.countdown_sec == 30
+    assert reloaded.reminder.return_sound.enabled is True
+    assert reloaded.reminder.return_sound.sound_path == "data/assets/custom.mp3"
+

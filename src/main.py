@@ -6,7 +6,9 @@ import sys
 from PySide6.QtCore import QThread, QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from src.app.clear_data import ClearDataService
 from src.app.connection_state import from_status
+from src.app.force_lock_controller import ForceLockController
 from src.app.worker import DetectionWorker
 from src.capture.frame_grabber import FrameGrabber
 from src.capture.video_source import create_source
@@ -19,6 +21,7 @@ from src.reminder.factory import create_reminder
 from src.reminder.return_prompt import ReturnPromptDialog
 from src.timer_engine import TimerEngine
 from src.types import ReminderContext, RestCountMode
+from src.ui.clear_data_dialog import run_clear_data_flow
 from src.ui.main_window import MainWindow
 from src.ui.settings import SettingsWindow
 from src.ui.strings import QUIT_CONFIRM_BODY, QUIT_CONFIRM_TITLE
@@ -69,6 +72,12 @@ def _build_worker(cfg: AppConfig, store: SessionStore, grabber: FrameGrabber) ->
     )
 
 
+def _maybe_build_force_lock(cfg: AppConfig) -> ForceLockController | None:
+    if not cfg.force_lock.enabled:
+        return None
+    return ForceLockController(cfg.force_lock)
+
+
 def main() -> int:
     suppress_decoder_noise()
     setup_logging()
@@ -92,8 +101,24 @@ def main() -> int:
     tray = TrayIcon()
     tray.bind_window(window)
     reminder = create_reminder(cfg.reminder, tray)
-    return_prompt_dialog = ReturnPromptDialog()
+    return_prompt_dialog = ReturnPromptDialog(return_sound=cfg.reminder.return_sound)  # Req 1
     settings = SettingsWindow(cfg, "config.yaml", window)
+
+    # Req 2: 清除資料（單一處理器，兩入口共用）
+    clear_service = ClearDataService(store, "config.yaml")
+
+    def _run_clear_data() -> None:
+        run_clear_data_flow(
+            window, clear_service, on_done=lambda _result: window._refresh_base()
+        )
+
+    window.clear_data_requested.connect(_run_clear_data)
+    settings.clear_data_requested.connect(_run_clear_data)
+
+    # Req 3: 強制鎖定（僅在 enabled 時建立並接線，停用時零額外負擔）
+    force_lock_controller = _maybe_build_force_lock(cfg)
+    if force_lock_controller is not None:
+        worker.timer_updated.connect(force_lock_controller.on_timer_updated)
 
     # M8: Preview rendered by QTimer (~30fps), pulling latest() from grabber
     preview_timer = QTimer()

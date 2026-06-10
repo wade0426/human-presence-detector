@@ -10,19 +10,19 @@
 
 ## 建議實作順序（依 §1.2 依賴方向拓撲排序）
 
-- [ ] 1. [[m0-config]] — M0 設定模型擴充（`src/config.py`，新增 `ReturnSoundConfig`／`ForceLockConfig`）
-- [ ] 2. [[m5-text-fixes]] — M5 文字修正（`strings.py`／`settings_schema.py` 錯字與引號掃描）
-- [ ] 3. [[m1a-sound-player]] — M1a 循環音效播放器（`src/reminder/sound.py`，新）
-- [ ] 4. [[m1b-return-prompt-sound]] — M1b 「歡迎回來」對話框播放音效
-- [ ] 5. [[m2a-logging-store-clear]] — M2a 紀錄清除方法（`SessionStore.clear_today`/`clear_all`）
-- [ ] 6. [[m2b-clear-data-service]] — M2b 清除服務（`ClearScope`/`ClearResult`/`ClearDataService`）
-- [ ] 7. [[m2c-clear-data-dialog]] — M2c 清除對話框與啟動流程（`ClearDataDialog`/`run_clear_data_flow`）
-- [ ] 8. [[m3a-screen-lock]] — M3a 平台鎖定函式（`is_supported`/`lock_screen`）
-- [ ] 9. [[m3b-force-lock-policy]] — M3b 鎖定決策（純邏輯，`ForceLockPolicy`）
-- [ ] 10. [[m3d-force-lock-window]] — M3d 倒數警示視窗（`ForceLockCountdownWindow`）
-- [ ] 11. [[m3c-force-lock-controller]] — M3c 鎖定控制器（`ForceLockController`）
-- [ ] 12. [[m4-tooltips]] — M4 提示與 tooltip（`FieldSpec.tooltip`、新分類「強制休息」、設定頁清除鈕）
-- [ ] 13. [[int-integration]] — INT 整合接線（`main.py`／`main_window.py`）
+- [x] 1. [[m0-config]] — M0 設定模型擴充（`src/config.py`，新增 `ReturnSoundConfig`／`ForceLockConfig`）
+- [x] 2. [[m5-text-fixes]] — M5 文字修正（`strings.py`／`settings_schema.py` 錯字與引號掃描）
+- [x] 3. [[m1a-sound-player]] — M1a 循環音效播放器（`src/reminder/sound.py`，新）
+- [x] 4. [[m1b-return-prompt-sound]] — M1b 「歡迎回來」對話框播放音效
+- [x] 5. [[m2a-logging-store-clear]] — M2a 紀錄清除方法（`SessionStore.clear_today`/`clear_all`）
+- [x] 6. [[m2b-clear-data-service]] — M2b 清除服務（`ClearScope`/`ClearResult`/`ClearDataService`）
+- [x] 7. [[m2c-clear-data-dialog]] — M2c 清除對話框與啟動流程（`ClearDataDialog`/`run_clear_data_flow`）
+- [x] 8. [[m3a-screen-lock]] — M3a 平台鎖定函式（`is_supported`/`lock_screen`）
+- [x] 9. [[m3b-force-lock-policy]] — M3b 鎖定決策（純邏輯，`ForceLockPolicy`）
+- [x] 10. [[m3d-force-lock-window]] — M3d 倒數警示視窗（`ForceLockCountdownWindow`）
+- [x] 11. [[m3c-force-lock-controller]] — M3c 鎖定控制器（`ForceLockController`）
+- [x] 12. [[m4-tooltips]] — M4 提示與 tooltip（`FieldSpec.tooltip`、新分類「強制休息」、設定頁清除鈕）
+- [x] 13. [[int-integration]] — INT 整合接線（`main.py`／`main_window.py`）
 
 > M5 與 M0 互不相依，可平行進行；但建議先完成 M5，建立乾淨的字串／引號基準，供 M2c、M3d、M4 新增字串時遵循同樣規範。M3 系列建議順序為 M3a → M3b → M3d → M3c（M3c 同時依賴 M3a/M3b/M3d）。
 
@@ -52,24 +52,24 @@
 
 ## 需求覆蓋（§11 設計自我審查）
 
-- [ ] **需求一　休息結束音效** — 模塊：M0、M1a、M1b、INT
+- [x] **需求一　休息結束音效** — 模塊：M0、M1a、M1b、INT
   驗收：啟用時循環播放／確認後停止／關閉視窗不停止／停用時無聲／音效檔缺失時容錯不崩潰。
-- [ ] **需求二　清除資料** — 模塊：M0（重設用）、M2a、M2b、M2c、M4（設定頁按鈕）、INT
+- [x] **需求二　清除資料** — 模塊：M0（重設用）、M2a、M2b、M2c、M4（設定頁按鈕）、INT
   驗收：今日／全部／全部並重設三種範圍／預設選取今日／二次確認／主視窗與設定頁兩入口／清除後即時刷新今日統計／重設後提示需重啟。
-- [ ] **需求三　強制休息鎖定** — 模塊：M0、M3a、M3b、M3c、M3d、INT
+- [x] **需求三　強制休息鎖定** — 模塊：M0、M3a、M3b、M3c、M3d、INT
   驗收：預設關閉／`overtime`與`on_rest`兩種觸發時機／`immediate`、`countdown_cancel`、`countdown_only`三種警示方式／同一週期只觸發一次／非 Windows 平台 no-op 不崩潰／不回寫計時狀態。
-- [ ] **需求四　強化提示說明** — 模塊：M4
+- [x] **需求四　強化提示說明** — 模塊：M4
   驗收：所有設定欄位皆有非空 `hint`；`reminder.method`/`timer.rest_count_mode`/`reminder.reminding_display_mode` 等關鍵欄位有完整 tooltip；`SettingsWindow` 元件套用 tooltip。
-- [ ] **需求五　修正介面文字錯誤** — 模塊：M5
+- [x] **需求五　修正介面文字錯誤** — 模塊：M5
   驗收：`reminder.reminding_display_mode` 的 hint 引號修正為成對「」；`strings.py`／`settings_schema.py` 全面掃描無 `》` 殘留；不改變任何文字語意。
 
 ---
 
 ## 整合驗證（全部模塊完成後）
 
-- [ ] `rtk pytest` 全專案測試通過
-- [ ] `rtk ruff check .`
-- [ ] `rtk mypy src cli`
+- [x] `rtk pytest` 全專案測試通過
+- [x] `rtk ruff check .`
+- [x] `rtk mypy src cli`
 - [ ] 手動驗收（Windows）：
   - [ ] 設定 `reminder.return_sound.enabled=true` → 觸發「歡迎回來」時可聽到循環音效，按確認後停止
   - [ ] 主視窗與設定頁「清除資料」皆可開啟對話框並完成三種範圍的清除與刷新
