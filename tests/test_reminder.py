@@ -110,6 +110,42 @@ def test_floating_reminder_emits_dismissed_on_click(qtbot: pytest.QtBot) -> None
 
 
 # ---------------------------------------------------------------------------
+# T8 Tests — §4.14 work_minutes float：FloatingReminder 倒數秒數
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.qt
+def test_floating_reminder_countdown_fractional_minutes(qtbot: pytest.QtBot) -> None:
+    """§4.14：work_minutes=0.1 → 倒數 6 秒（round 而非截斷或浮點殘差）。"""
+    from src.reminder.floating import FloatingReminder
+
+    reminder = FloatingReminder(FloatingConfig(position="top-right"))
+    qtbot.addWidget(reminder)
+    ctx = ReminderContext(work_minutes=0.1, media_path="", media_type="image", sound_path="")
+
+    reminder.show(ctx)
+
+    assert reminder._remaining == 6
+    assert isinstance(reminder._remaining, int)
+    reminder.hide()
+
+
+@pytest.mark.qt
+def test_floating_reminder_countdown_float_minutes(qtbot: pytest.QtBot) -> None:
+    """§4.14：work_minutes=25.5 → 倒數 1530 秒。"""
+    from src.reminder.floating import FloatingReminder
+
+    reminder = FloatingReminder(FloatingConfig(position="top-right"))
+    qtbot.addWidget(reminder)
+    ctx = ReminderContext(work_minutes=25.5, media_path="", media_type="image", sound_path="")
+
+    reminder.show(ctx)
+
+    assert reminder._remaining == 1530
+    reminder.hide()
+
+
+# ---------------------------------------------------------------------------
 # M7 Tests — PopupReminder single button, ReturnPromptDialog
 # ---------------------------------------------------------------------------
 
@@ -205,6 +241,89 @@ def test_return_prompt_dialog_does_not_render_reminder_context_repr(
 
     assert "ReminderContext(" not in dialog._message_label.text()
     assert "work_minutes=" not in dialog._message_label.text()
+
+
+# ---------------------------------------------------------------------------
+# 需求二 FR-2.2/2.4/2.5 — PopupReminder 提醒音改用獨立 QMediaPlayer、hide 停音
+# ---------------------------------------------------------------------------
+
+
+class _FakeSoundPlayer:
+    def __init__(self) -> None:
+        self.play_calls: list[str] = []
+        self.stop_calls: int = 0
+
+    def play(self, sound_path: str) -> None:
+        self.play_calls.append(sound_path)
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+
+
+@pytest.mark.qt
+def test_popup_sound_player_separate_from_video_player(qtbot: pytest.QtBot) -> None:
+    """FR-2.2/2.4：popup 提醒音改用第二組 QMediaPlayer，與影片播放器分離且單次播放"""
+    from src.reminder.popup import PopupReminder
+    from src.reminder.sound import QtSoundPlayer
+
+    reminder = PopupReminder()
+    qtbot.addWidget(reminder)
+
+    assert not hasattr(reminder, "_sound_effect")
+    assert isinstance(reminder._sound_player, QtSoundPlayer)
+    assert reminder._sound_player._player is not reminder._media_player
+    assert reminder._sound_player._player.loops() == 1
+
+
+@pytest.mark.qt
+def test_popup_show_plays_sound_via_player(qtbot: pytest.QtBot) -> None:
+    """show() 時提醒音路徑透過 sound player 播放（容錯由 player 處理）"""
+    from src.reminder.popup import PopupReminder
+
+    reminder = PopupReminder()
+    qtbot.addWidget(reminder)
+    fake = _FakeSoundPlayer()
+    reminder._sound_player = fake  # type: ignore[assignment]
+
+    ctx = ReminderContext(work_minutes=30, media_path="", media_type="image", sound_path="x.mp3")
+    reminder.show(ctx)
+
+    assert fake.play_calls == ["x.mp3"]
+    reminder.hide()
+
+
+@pytest.mark.qt
+def test_popup_hide_stops_sound_player(qtbot: pytest.QtBot) -> None:
+    """FR-2.5：hide() 一併停止提醒音（不只停影片）"""
+    from src.reminder.popup import PopupReminder
+
+    reminder = PopupReminder()
+    qtbot.addWidget(reminder)
+    fake = _FakeSoundPlayer()
+    reminder._sound_player = fake  # type: ignore[assignment]
+
+    reminder.show(_image_context())
+    reminder.hide()
+
+    assert fake.stop_calls >= 1
+
+
+@pytest.mark.qt
+def test_popup_hide_leaves_real_sound_player_stopped(qtbot: pytest.QtBot) -> None:
+    """FR-2.5：hide() 後實際音效播放器處於停止狀態"""
+    from PySide6.QtMultimedia import QMediaPlayer
+
+    from src.reminder.popup import PopupReminder
+
+    reminder = PopupReminder()
+    qtbot.addWidget(reminder)
+
+    reminder.show(_image_context())
+    reminder.hide()
+
+    state = reminder._sound_player._player.playbackState()
+    assert state == QMediaPlayer.PlaybackState.StoppedState
+    assert reminder._sound_player.is_playing() is False
 
 
 @pytest.mark.qt

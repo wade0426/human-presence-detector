@@ -387,7 +387,7 @@ def test_action_bar_quit_button_emits_request_quit(qtbot: pytest.QtBot) -> None:
 
 @pytest.mark.qt
 def test_preview_view_edit_mode_shows_hint(qtbot: pytest.QtBot) -> None:
-    """set_edit_mode(True) → hint text label is visible with ROI_HINT text."""
+    """set_edit_mode(True) → hint overlay shows ROI_HINT text (§4.9 覆蓋層)."""
     from src.ui.strings import ROI_HINT
     from src.ui.widgets.preview_view import PreviewView
 
@@ -395,12 +395,13 @@ def test_preview_view_edit_mode_shows_hint(qtbot: pytest.QtBot) -> None:
     qtbot.addWidget(view)
     view.set_edit_mode(True)
 
-    assert view._label.text() == ROI_HINT
+    assert view._overlay.text() == ROI_HINT
+    assert not view._overlay.isHidden()
 
 
 @pytest.mark.qt
 def test_preview_view_edit_mode_false_hides_hint(qtbot: pytest.QtBot) -> None:
-    """set_edit_mode(False) → hint text label is cleared."""
+    """set_edit_mode(False) → hint overlay is cleared and hidden."""
     from src.ui.widgets.preview_view import PreviewView
 
     view = PreviewView()
@@ -408,7 +409,8 @@ def test_preview_view_edit_mode_false_hides_hint(qtbot: pytest.QtBot) -> None:
     view.set_edit_mode(True)
     view.set_edit_mode(False)
 
-    assert view._label.text() == ""
+    assert view._overlay.text() == ""
+    assert view._overlay.isHidden()
 
 
 # ---------------------------------------------------------------------------
@@ -639,7 +641,358 @@ def test_main_window_stream_error_shows_overlay_and_clears_presence(
     window.on_connection_status("stream_error")
 
     assert window._presence_badge._text_label.text() == "無人"
-    assert window._preview._label.text() == "影像異常"
+    assert window._preview._overlay.text() == "影像異常"
+
+
+# ---------------------------------------------------------------------------
+# T3 Tests — PreviewView ROI 留邊換算（§4.3）與文字覆蓋層分離（§4.9）
+# ---------------------------------------------------------------------------
+
+
+def _make_frame(width: int, height: int) -> object:
+    import numpy as np
+
+    from src.types import Frame
+
+    image = np.zeros((height, width, 3), dtype=np.uint8)
+    return Frame(image=image, width=width, height=height, timestamp=0.0)
+
+
+@pytest.mark.qt
+def test_preview_view_roi_conversion_compensates_letterbox(qtbot: pytest.QtBot) -> None:
+    """640x360 影格放入 400x400 widget：scaled=400x225、上下留邊約 87px。
+
+    框選座標需扣除留邊偏移、以實際顯示影像尺寸正規化（§4.3）。
+    """
+    from src.types import BBox
+    from src.ui.widgets.preview_view import PreviewView
+
+    view = PreviewView()
+    qtbot.addWidget(view)
+    view.setFixedSize(400, 400)
+    view.show()
+    qtbot.waitExposed(view)
+
+    view.set_frame(_make_frame(640, 360))
+    view.set_edit_mode(True)
+
+    signals: list[object] = []
+    view.roi_committed.connect(signals.append)
+
+    qtbot.mousePress(view, Qt.MouseButton.LeftButton, pos=QPoint(40, 137))
+    qtbot.mouseMove(view, QPoint(240, 237))
+    qtbot.mouseRelease(view, Qt.MouseButton.LeftButton, pos=QPoint(240, 237))
+
+    assert len(signals) == 1
+    roi = signals[0]
+    assert isinstance(roi, BBox)
+    # 顯示矩形：x∈[0,400)、y∈[87.5, 312.5)（留邊 (400-225)/2）
+    assert roi.x == pytest.approx(40 / 400, abs=0.01)
+    assert roi.y == pytest.approx((137 - 87.5) / 225, abs=0.01)
+    assert roi.w == pytest.approx(200 / 400, abs=0.01)
+    assert roi.h == pytest.approx(100 / 225, abs=0.01)
+
+
+@pytest.mark.qt
+def test_preview_view_roi_clamped_to_image_area(qtbot: pytest.QtBot) -> None:
+    """框選超出影像區域（拖進留邊）時，結果需 clamp 至 [0,1]（§4.3）。"""
+    from src.types import BBox
+    from src.ui.widgets.preview_view import PreviewView
+
+    view = PreviewView()
+    qtbot.addWidget(view)
+    view.setFixedSize(400, 400)
+    view.show()
+    qtbot.waitExposed(view)
+
+    view.set_frame(_make_frame(640, 360))
+    view.set_edit_mode(True)
+
+    signals: list[object] = []
+    view.roi_committed.connect(signals.append)
+
+    # 從上方留邊一路拖到下方留邊：y 應 clamp 成 [0,1]
+    qtbot.mousePress(view, Qt.MouseButton.LeftButton, pos=QPoint(100, 10))
+    qtbot.mouseMove(view, QPoint(300, 390))
+    qtbot.mouseRelease(view, Qt.MouseButton.LeftButton, pos=QPoint(300, 390))
+
+    assert len(signals) == 1
+    roi = signals[0]
+    assert isinstance(roi, BBox)
+    assert roi.y == pytest.approx(0.0, abs=0.01)
+    assert roi.h == pytest.approx(1.0, abs=0.01)
+    assert roi.x == pytest.approx(100 / 400, abs=0.01)
+    assert roi.w == pytest.approx(200 / 400, abs=0.01)
+
+
+@pytest.mark.qt
+def test_preview_view_no_frame_selection_clamped_to_widget(qtbot: pytest.QtBot) -> None:
+    """§4.8：尚無影格的 fallback 換算也必須 clamp，不得產出 x+w>1 的越界 ROI。
+
+    滑鼠拖曳因 Qt mouse grab 可超出 widget 邊界，框選矩形可為負或超界。
+    """
+    from PySide6.QtCore import QRect
+
+    from src.types import BBox
+    from src.ui.widgets.preview_view import PreviewView
+
+    view = PreviewView()
+    qtbot.addWidget(view)
+    view.setFixedSize(400, 300)
+    view.show()
+    qtbot.waitExposed(view)
+    view.set_edit_mode(True)
+
+    # 拖出右下邊界：(350,250)→(450,350)
+    roi = view._roi_from_selection(QRect(350, 250, 100, 100))
+    assert isinstance(roi, BBox)
+    assert roi.x == pytest.approx(350 / 400)
+    assert roi.y == pytest.approx(250 / 300)
+    assert roi.x + roi.w <= 1.0
+    assert roi.y + roi.h <= 1.0
+
+    # 拖出左上邊界：負座標需 clamp 回 0
+    roi = view._roi_from_selection(QRect(-50, -50, 100, 100))
+    assert isinstance(roi, BBox)
+    assert roi.x == pytest.approx(0.0)
+    assert roi.y == pytest.approx(0.0)
+
+    # 完全落在 widget 之外：拒絕提交
+    assert view._roi_from_selection(QRect(450, 350, 50, 50)) is None
+
+
+@pytest.mark.qt
+def test_main_window_roi_commit_clamps_out_of_range_roi(
+    qtbot: pytest.QtBot, tmp_path: object
+) -> None:
+    """§4.8 防鎖死：寫檔前 clamp，越界 roi 不得進 config.yaml 害下次啟動被拒。"""
+    from src.config import load_config, save_config
+    from src.types import BBox
+    from src.ui.main_window import MainWindow
+    from src.ui.settings_schema import set_value
+
+    cfg_path = str(tmp_path / "cfg.yaml")  # type: ignore[operator]
+    save_config(set_value(AppConfig(), "source.type", "webcam"), cfg_path)
+
+    window = MainWindow(AppConfig(), FakeSummaryStore(), config_path=cfg_path)
+    qtbot.addWidget(window)
+
+    emitted: list[object] = []
+    window.roi_changed.connect(emitted.append)
+
+    window._on_roi_committed(BBox(0.875, 0.25, 0.25, 0.25))
+
+    saved = load_config(cfg_path)
+    assert saved.presence.roi == BBox(0.875, 0.25, 0.125, 0.25)
+    assert emitted == [BBox(0.875, 0.25, 0.125, 0.25)]
+
+
+@pytest.mark.qt
+def test_preview_view_roi_drag_entirely_in_margin_rejected(qtbot: pytest.QtBot) -> None:
+    """完全落在留邊內的框選不得提交（不發 signal）（§4.3）。"""
+    from src.ui.widgets.preview_view import PreviewView
+
+    view = PreviewView()
+    qtbot.addWidget(view)
+    view.setFixedSize(400, 400)
+    view.show()
+    qtbot.waitExposed(view)
+
+    view.set_frame(_make_frame(640, 360))
+    view.set_edit_mode(True)
+
+    signals: list[object] = []
+    view.roi_committed.connect(signals.append)
+
+    # 上方留邊為 y < 87，整個框選落在其中
+    qtbot.mousePress(view, Qt.MouseButton.LeftButton, pos=QPoint(20, 10))
+    qtbot.mouseMove(view, QPoint(300, 60))
+    qtbot.mouseRelease(view, Qt.MouseButton.LeftButton, pos=QPoint(300, 60))
+
+    assert len(signals) == 0
+
+
+@pytest.mark.qt
+def test_preview_view_hint_survives_frame_updates(qtbot: pytest.QtBot) -> None:
+    """set_edit_mode(True) 後連續 set_frame，提示文字仍可見（§4.9）。"""
+    from src.ui.strings import ROI_HINT
+    from src.ui.widgets.preview_view import PreviewView
+
+    view = PreviewView()
+    qtbot.addWidget(view)
+    view.setFixedSize(400, 400)
+    view.show()
+    qtbot.waitExposed(view)
+
+    view.set_edit_mode(True)
+    for _ in range(3):
+        view.set_frame(_make_frame(640, 360))
+
+    assert view._overlay.isVisible()
+    assert view._overlay.text() == ROI_HINT
+
+
+@pytest.mark.qt
+def test_preview_view_overlay_text_survives_frame_updates(qtbot: pytest.QtBot) -> None:
+    """set_overlay_text 後連續 set_frame，覆蓋文字仍可見（§4.9）。"""
+    from src.ui.widgets.preview_view import PreviewView
+
+    view = PreviewView()
+    qtbot.addWidget(view)
+    view.setFixedSize(400, 400)
+    view.show()
+    qtbot.waitExposed(view)
+
+    view.set_overlay_text("影像異常")
+    for _ in range(3):
+        view.set_frame(_make_frame(640, 360))
+
+    assert view._overlay.isVisible()
+    assert view._overlay.text() == "影像異常"
+
+
+@pytest.mark.qt
+def test_preview_view_clear_overlay_text_hides_overlay(qtbot: pytest.QtBot) -> None:
+    """set_overlay_text('') 應清除並隱藏覆蓋層（§4.9）。"""
+    from src.ui.widgets.preview_view import PreviewView
+
+    view = PreviewView()
+    qtbot.addWidget(view)
+    view.setFixedSize(400, 400)
+    view.show()
+    qtbot.waitExposed(view)
+
+    view.set_overlay_text("影像異常")
+    view.set_overlay_text("")
+
+    assert not view._overlay.isVisible()
+    assert view._overlay.text() == ""
+
+
+# ---------------------------------------------------------------------------
+# T8 Tests — §4.6 tray 槽方法、§4.11 暫停同步、§4.7 ROI 端磁碟基底
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.qt
+def test_tray_on_timer_updated_slot_updates_tooltip(qtbot: pytest.QtBot) -> None:
+    """§4.6：TrayIcon.on_timer_updated(snapshot) 薄槽方法更新 tooltip。"""
+    from src.ui.tray import TrayIcon
+
+    tray = TrayIcon()
+    qtbot.addWidget(QWidget())
+    snapshot = TimerSnapshot(
+        state=TimerState.WORKING,
+        work_elapsed_sec=10.0,
+        away_elapsed_sec=0.0,
+        remaining_to_reminder_sec=100.0,
+        reminder_active=False,
+    )
+
+    tray.on_timer_updated(snapshot)
+
+    assert "工作中" in tray.toolTip()
+
+
+@pytest.mark.qt
+def test_tray_on_connection_status_slot_updates_tooltip(qtbot: pytest.QtBot) -> None:
+    """§4.6：TrayIcon.on_connection_status(status 字串) 薄槽方法更新 tooltip。"""
+    from src.ui.tray import TrayIcon
+
+    tray = TrayIcon()
+    qtbot.addWidget(QWidget())
+
+    tray.on_connection_status("connected")
+
+    assert "已連線" in tray.toolTip()
+
+
+@pytest.mark.qt
+def test_action_bar_set_paused_syncs_button_without_emitting(qtbot: pytest.QtBot) -> None:
+    """§4.11：ActionBar.set_paused 同步 checked 與文字，且不得重發 pause_toggled。"""
+    from src.ui.strings import ACTION_PAUSE, ACTION_RESUME
+    from src.ui.widgets.action_bar import ActionBar
+
+    bar = ActionBar()
+    qtbot.addWidget(bar)
+    emitted: list[bool] = []
+    bar.pause_toggled.connect(emitted.append)
+
+    bar.set_paused(True)
+    assert bar._pause_btn.isChecked() is True
+    assert bar._pause_btn.text() == ACTION_RESUME
+
+    bar.set_paused(False)
+    assert bar._pause_btn.isChecked() is False
+    assert bar._pause_btn.text() == ACTION_PAUSE
+
+    assert emitted == []
+
+
+@pytest.mark.qt
+def test_action_bar_click_after_external_set_paused_emits_opposite(
+    qtbot: pytest.QtBot,
+) -> None:
+    """§4.11：外部 set_paused(True) 後，使用者點擊應發出 pause_toggled(False)。"""
+    from src.ui.widgets.action_bar import ActionBar
+
+    bar = ActionBar()
+    qtbot.addWidget(bar)
+    bar.set_paused(True)
+
+    emitted: list[bool] = []
+    bar.pause_toggled.connect(emitted.append)
+    bar._pause_btn.click()
+
+    assert emitted == [False]
+
+
+@pytest.mark.qt
+def test_main_window_set_paused_forwards_to_action_bar(
+    qtbot: pytest.QtBot, tmp_path: object
+) -> None:
+    """§4.11：MainWindow.set_paused 轉發至 ActionBar，且不得重發 request_pause。"""
+    from src.ui.main_window import MainWindow
+
+    window = MainWindow(
+        AppConfig(),
+        FakeSummaryStore(),
+        config_path=str(tmp_path / "cfg.yaml"),
+    )
+    qtbot.addWidget(window)
+    emitted: list[bool] = []
+    window.request_pause.connect(emitted.append)
+
+    window.set_paused(True)
+
+    assert window._actions._pause_btn.isChecked() is True
+    assert emitted == []
+
+
+@pytest.mark.qt
+def test_main_window_roi_commit_uses_disk_config_as_base(
+    qtbot: pytest.QtBot, tmp_path: object
+) -> None:
+    """§4.7 ROI 端：先存設定（磁碟有新值）→ ROI 重框寫檔後設定值保留。"""
+    from src.config import load_config, save_config
+    from src.types import BBox
+    from src.ui.main_window import MainWindow
+    from src.ui.settings_schema import set_value
+
+    cfg_path = str(tmp_path / "cfg.yaml")  # type: ignore[operator]
+    window = MainWindow(AppConfig(), FakeSummaryStore(), config_path=cfg_path)
+    qtbot.addWidget(window)
+
+    # 模擬設定視窗在 window 啟動後把新值存到磁碟（window 仍持有啟動時的舊 config）
+    disk_cfg = set_value(AppConfig(), "source.type", "webcam")  # 確保重讀可通過驗證
+    disk_cfg = set_value(disk_cfg, "timer.work_threshold_min", 33.0)
+    save_config(disk_cfg, cfg_path)
+
+    window._on_roi_committed(BBox(0.1, 0.2, 0.3, 0.4))
+
+    saved = load_config(cfg_path)
+    assert saved.timer.work_threshold_min == 33.0
+    assert saved.presence.roi == BBox(0.1, 0.2, 0.3, 0.4)
 
 
 # ---------------------------------------------------------------------------

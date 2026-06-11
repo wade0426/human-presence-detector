@@ -18,7 +18,12 @@ def test_from_status_unknown_returns_idle() -> None:
 def test_severity_all_states_have_value() -> None:
     for state in ConnectionState:
         result = severity(state)
-        assert result in ("neutral", "info", "success", "warning", "danger")
+        assert result in ("muted", "info", "success", "warning", "danger")
+
+
+def test_idle_severity_is_muted() -> None:
+    """§4.16: IDLE uses the unified 'muted' role so the QSS only needs one rule."""
+    assert severity(ConnectionState.IDLE) == "muted"
 
 
 def test_icon_key_all_states_non_empty() -> None:

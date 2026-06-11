@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
 import inspect
+import itertools
 
 import numpy as np
 import pytest
@@ -43,6 +45,11 @@ class FakeThread:
 
 
 class FakeFrames:
+    """Live-stream fake：佇列影格各服務一次；耗盡後持續以「新 timestamp」
+    重供最後一幀，使串流永不顯得凍結（worker 依 §4.2 以 timestamp 新鮮度
+    判斷影格，凍結 timestamp 會被視為過期而跳過偵測）。
+    """
+
     def __init__(self, frames: list[Frame | None], is_opened: bool = True) -> None:
         self._frames = list(frames)
         self._index = 0
@@ -52,7 +59,10 @@ class FakeFrames:
         if not self._frames:
             return None
         if self._index >= len(self._frames):
-            return self._frames[-1]
+            last = self._frames[-1]
+            if last is None:
+                return None
+            return dataclasses.replace(last, timestamp=float(next(_TS_COUNTER)))
         frame = self._frames[self._index]
         self._index += 1
         return frame
@@ -101,9 +111,13 @@ class FakeClock:
         return value
 
 
+_TS_COUNTER = itertools.count()
+
+
 def _frame() -> Frame:
+    """產生 timestamp 單調遞增的影格（§4.2：凍結 timestamp 視為過期影格）。"""
     image = np.zeros((10, 10, 3), dtype=np.uint8)
-    return Frame(image=image, width=10, height=10, timestamp=0.0)
+    return Frame(image=image, width=10, height=10, timestamp=float(next(_TS_COUNTER)))
 
 
 def _qualifying_detection() -> Detection:
@@ -112,7 +126,7 @@ def _qualifying_detection() -> Detection:
 
 def _make_worker(detector: FakeDetector, *, rest_mode: RestCountMode) -> DetectionWorker:
     return DetectionWorker(
-        frames=FakeFrames([_frame()] * 24),
+        frames=FakeFrames([_frame() for _ in range(24)]),
         detector=detector,
         presence_evaluator=PresenceEvaluator(BBox(0.0, 0.0, 1.0, 1.0), 0.2, 1),
         timer_engine=TimerEngine(0.5, 5.0, 0.5, 3.0, rest_mode),
@@ -244,6 +258,108 @@ def test_qthread_popup_start_rest_bridge_enters_resting(qtbot: pytest.QtBot) -> 
         )
     finally:
         _stop_worker_thread(worker, thread)
+
+
+# ---------------------------------------------------------------------------
+# T8 Tests — §4.6 tray 槽方法接線、§4.11 暫停同步、§4.8 logging_enabled、
+#            §4.14 work_minutes float、§4.5 main 端 ConfigError 處理
+# ---------------------------------------------------------------------------
+
+
+def test_worker_signals_connect_to_tray_bound_methods() -> None:
+    """§4.6：worker 訊號需連到 TrayIcon 的 QObject bound method，不可用 lambda。"""
+    source = inspect.getsource(src.main.main)
+
+    assert "worker.timer_updated.connect(tray.on_timer_updated)" in source
+    assert "worker.connection_status.connect(tray.on_connection_status)" in source
+    assert "lambda snapshot: tray.set_timer_state" not in source
+    assert "lambda status: tray.set_connection" not in source
+
+
+def test_toggle_pause_syncs_window_and_tray() -> None:
+    """§4.11：_toggle_pause 需同步主視窗按鈕與托盤文字（單一事實來源）。"""
+    source = inspect.getsource(src.main.main)
+
+    assert "window.set_paused(paused)" in source
+    assert "tray.set_paused(paused)" in source
+
+
+def _cfg_for_build_worker(**overrides: object) -> object:
+    from src.config import AppConfig, DetectionConfig
+
+    # device="cpu" 避免 _resolve_device("auto") 匯入 torch 拖慢測試
+    return AppConfig(detection=DetectionConfig(device="cpu"), **overrides)
+
+
+def test_build_worker_passes_logging_enabled_false() -> None:
+    """§4.8：_build_worker 需把 cfg.logging.enabled 接到 DetectionWorker。"""
+    from src.config import LoggingConfig
+    from src.main import _build_worker
+
+    cfg = _cfg_for_build_worker(logging=LoggingConfig(enabled=False))
+
+    worker = _build_worker(cfg, FakeStore(), FakeFrames([]))
+
+    assert worker._logging_enabled is False
+
+
+def test_build_worker_passes_logging_enabled_true() -> None:
+    from src.config import LoggingConfig
+    from src.main import _build_worker
+
+    cfg = _cfg_for_build_worker(logging=LoggingConfig(enabled=True))
+
+    worker = _build_worker(cfg, FakeStore(), FakeFrames([]))
+
+    assert worker._logging_enabled is True
+
+
+def test_build_worker_preserves_fractional_work_minutes() -> None:
+    """§4.14：work_threshold_min 不得被 int() 截斷（25.5 分需保留 25.5）。"""
+    from src.config import TimerConfig
+    from src.main import _build_worker
+
+    cfg = _cfg_for_build_worker(timer=TimerConfig(work_threshold_min=25.5))
+
+    worker = _build_worker(cfg, FakeStore(), FakeFrames([]))
+
+    assert worker._reminder_context.work_minutes == pytest.approx(25.5)
+
+
+def test_main_malformed_config_exits_nonzero_with_config_error_message(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """§4.5 main 端：畸形 config 啟動需以 stderr 列出錯誤、非零退出、無 traceback。
+
+    結構損壞（非數值）的 roi 仍整檔拒絕；數值越界的 roi 改走 clamp 遷移
+    （§4.8 防鎖死，見 tests/test_config.py），不再於啟動時拒絕。
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text(  # type: ignore[attr-defined]
+        "presence:\n  roi: [bad, 0.2, 0.3, 0.4]\n", encoding="utf-8"
+    )
+
+    rc = src.main.main()
+
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "presence.roi" in err
+
+
+def test_main_broken_yaml_exits_nonzero_without_traceback(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """§4.5 審查修正：YAML 語法錯誤也必須以 ConfigError 訊息退出，不得外洩 traceback。"""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text(  # type: ignore[attr-defined]
+        "source: [unclosed\n  type: webcam\n", encoding="utf-8"
+    )
+
+    rc = src.main.main()
+
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "config.yaml" in err
 
 
 # ---------------------------------------------------------------------------

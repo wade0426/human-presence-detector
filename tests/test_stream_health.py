@@ -125,6 +125,72 @@ class TestOK:
 
 
 # ---------------------------------------------------------------------------
+# §4.2 審查修正：no-signal 寬限期（來源 FPS 低於輪詢頻率時不得誤判無訊號）
+# ---------------------------------------------------------------------------
+
+
+class TestNoSignalGrace:
+    """已收過影格後的短暫空窗（< no_signal_after_sec）仍視為 OK。"""
+
+    def make_grace_monitor(self) -> StreamHealthMonitor:
+        return StreamHealthMonitor(
+            timeout_sec=10.0, clock=lambda: 0.0, no_signal_after_sec=2.0
+        )
+
+    def test_ok_within_grace_after_frame(self) -> None:
+        monitor = self.make_grace_monitor()
+        monitor.update(has_frame=True, is_opened=True, now=5.0)
+        assert monitor.update(has_frame=False, is_opened=True, now=6.9) is StreamHealth.OK
+
+    def test_no_signal_after_grace(self) -> None:
+        monitor = self.make_grace_monitor()
+        monitor.update(has_frame=True, is_opened=True, now=5.0)
+        assert (
+            monitor.update(has_frame=False, is_opened=True, now=7.0)
+            is StreamHealth.NO_SIGNAL
+        )
+
+    def test_timeout_still_applies_beyond_timeout(self) -> None:
+        monitor = self.make_grace_monitor()
+        monitor.update(has_frame=True, is_opened=True, now=5.0)
+        assert (
+            monitor.update(has_frame=False, is_opened=True, now=15.0)
+            is StreamHealth.TIMEOUT
+        )
+
+    def test_grace_not_applied_before_first_frame(self) -> None:
+        """來源開啟但從未收過影格：沒有「健康串流」可言，不適用寬限。"""
+        monitor = self.make_grace_monitor()
+        assert (
+            monitor.update(has_frame=False, is_opened=True, now=0.5)
+            is StreamHealth.NO_SIGNAL
+        )
+
+    def test_disconnected_wins_over_grace(self) -> None:
+        monitor = self.make_grace_monitor()
+        monitor.update(has_frame=True, is_opened=True, now=5.0)
+        assert (
+            monitor.update(has_frame=False, is_opened=False, now=5.5)
+            is StreamHealth.DISCONNECTED
+        )
+
+    def test_default_grace_is_zero(self) -> None:
+        """預設不啟用寬限：既有行為（立即 NO_SIGNAL）不變。"""
+        monitor = StreamHealthMonitor(timeout_sec=10.0, clock=lambda: 0.0)
+        monitor.update(has_frame=True, is_opened=True, now=5.0)
+        assert (
+            monitor.update(has_frame=False, is_opened=True, now=5.1)
+            is StreamHealth.NO_SIGNAL
+        )
+
+
+def test_default_no_signal_grace_constant() -> None:
+    from src.capture.stream_health import DEFAULT_NO_SIGNAL_GRACE_SEC
+
+    assert pytest.approx(2.0) == DEFAULT_NO_SIGNAL_GRACE_SEC
+
+
+# ---------------------------------------------------------------------------
 # Default constant
 # ---------------------------------------------------------------------------
 

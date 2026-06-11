@@ -5,7 +5,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.config import MINUTE_MAX, MINUTE_MIN, AppConfig, load_config, save_config, validate
+from src.config import (
+    MINUTE_MAX,
+    MINUTE_MIN,
+    AppConfig,
+    ConfigError,
+    load_config,
+    save_config,
+    validate,
+)
 from src.types import BBox
 
 
@@ -339,4 +347,227 @@ def test_roundtrip_serialize_force_lock(tmp_path: Path) -> None:
     assert reloaded.force_lock.countdown_sec == 30
     assert reloaded.reminder.return_sound.enabled is True
     assert reloaded.reminder.return_sound.sound_path == "data/assets/custom.mp3"
+
+
+# ---------------------------------------------------------------------------
+# T2 tests: presence.roi & sibling field validation (proposal §4.5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "roi",
+    [
+        "not-a-list",  # 非 list（字串）
+        {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},  # 非 list（dict）
+        0.5,  # 非 list（純量）
+        [0.1, 0.2, 0.3],  # 長度 3
+        [0.1, 0.2, 0.3, 0.4, 0.5],  # 長度 5
+        [None, 0.2, 0.3, 0.4],  # 含 None
+        ["0.1", 0.2, 0.3, 0.4],  # 含字串
+        [True, 0.2, 0.3, 0.4],  # 含 bool
+        [-0.1, 0.2, 0.3, 0.4],  # x 負值
+        [0.1, 1.5, 0.3, 0.4],  # y > 1
+        [0.1, 0.2, 0.0, 0.4],  # w = 0
+        [0.1, 0.2, 0.3, 0.0],  # h = 0
+        [0.1, 0.2, -0.3, 0.4],  # w 負值
+        [0.7, 0.2, 0.4, 0.4],  # x + w > 1
+        [0.1, 0.8, 0.3, 0.4],  # y + h > 1
+    ],
+)
+def test_validate_reports_malformed_roi(roi: object) -> None:
+    """validate() must report a presence.roi error for malformed/out-of-range roi."""
+    errors = validate({"source": {"type": "webcam"}, "presence": {"roi": roi}})
+    assert any("presence.roi" in e for e in errors)
+
+
+@pytest.mark.parametrize(
+    "roi",
+    [
+        [0.1, 0.2, 0.3, 0.4],
+        [0, 0, 1, 1],  # 整數邊界值
+        [0.3, 0.2, 0.4, 0.7],  # 預設值
+        [0.0, 0.0, 0.5, 1.0],
+    ],
+)
+def test_validate_accepts_valid_roi(roi: list[float]) -> None:
+    """validate() must not report presence.roi errors for legal roi values."""
+    errors = validate({"source": {"type": "webcam"}, "presence": {"roi": roi}})
+    assert not any("presence.roi" in e for e in errors)
+
+
+def test_validate_accepts_missing_roi() -> None:
+    """Missing roi falls back to the default and must not be reported."""
+    errors = validate({"source": {"type": "webcam"}, "presence": {}})
+    assert not any("presence.roi" in e for e in errors)
+
+
+@pytest.mark.parametrize(
+    "roi",
+    [
+        [None, 0.2, 0.3, 0.4],
+        ["abc", 0.2, 0.3, 0.4],
+        "not-a-list",
+        [0.1, 0.2, 0.3],
+    ],
+)
+def test_load_config_raises_config_error_for_malformed_roi(
+    tmp_path: Path, roi: object
+) -> None:
+    """load_config must raise ConfigError (not TypeError/ValueError) for bad roi.
+
+    結構損壞（非數值、形狀錯誤）仍整檔拒絕；數值越界改走 clamp 遷移
+    （見 test_load_config_clamps_out_of_range_roi）。
+    """
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {"source": {"type": "webcam"}, "presence": {"roi": roi}},
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(str(path))
+    assert "presence.roi" in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# 審查修正：load_config 對 YAML 語法錯誤／IO 錯誤一律拋 ConfigError（§4.5）
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_raises_config_error_for_broken_yaml(tmp_path: Path) -> None:
+    """語法損壞的 YAML 必須以 ConfigError 呈現，而非外洩 yaml.YAMLError。"""
+    path = tmp_path / "config.yaml"
+    path.write_text("source: [unclosed\n  type: webcam\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(str(path))
+
+
+def test_load_config_raises_config_error_for_unreadable_path(tmp_path: Path) -> None:
+    """無法讀取（路徑是目錄）必須以 ConfigError 呈現，而非外洩 OSError。"""
+    path = tmp_path / "config.yaml"
+    path.mkdir()
+
+    with pytest.raises(ConfigError):
+        load_config(str(path))
+
+
+# ---------------------------------------------------------------------------
+# 審查修正（§4.8 防鎖死）：數值越界的 roi 載入時 clamp 遷移，不整檔拒絕
+# ---------------------------------------------------------------------------
+
+
+def _write_roi_config(tmp_path: Path, roi: list[float]) -> str:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {"source": {"type": "webcam"}, "presence": {"roi": roi}},
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+def test_load_config_clamps_out_of_range_roi(tmp_path: Path) -> None:
+    """舊版框選寫入的 x+w>1 越界值：載入時夾回合法範圍，不得拒絕啟動。"""
+    path = _write_roi_config(tmp_path, [0.875, 0.25, 0.25, 0.25])
+
+    config = load_config(path)
+
+    assert config.presence.roi == BBox(0.875, 0.25, 0.125, 0.25)
+
+
+def test_load_config_clamps_negative_roi_origin(tmp_path: Path) -> None:
+    path = _write_roi_config(tmp_path, [-0.1, 0.2, 0.3, 0.4])
+
+    config = load_config(path)
+
+    assert config.presence.roi == BBox(0.0, 0.2, 0.3, 0.4)
+
+
+@pytest.mark.parametrize(
+    "roi",
+    [
+        [1.5, 0.2, 0.4, 0.7],  # x>1 → clamp 後寬度歸零（退化）
+        [0.1, 0.2, -0.3, 0.4],  # w 負值（退化）
+        [0.1, 0.2, 0.3, 0.0],  # h=0（退化）
+    ],
+)
+def test_load_config_degenerate_roi_falls_back_to_default(
+    tmp_path: Path, roi: list[float]
+) -> None:
+    """clamp 後寬高歸零的退化 roi 回退預設值，仍不得拒絕啟動。"""
+    path = _write_roi_config(tmp_path, roi)
+
+    config = load_config(path)
+
+    assert config.presence.roi == AppConfig().presence.roi
+
+
+def test_clamp_roi_keeps_valid_roi_unchanged() -> None:
+    from src.config import clamp_roi
+
+    roi = BBox(0.3, 0.2, 0.4, 0.7)
+    assert clamp_roi(roi) == roi
+
+
+def test_clamp_roi_clamps_overflowing_extent() -> None:
+    from src.config import clamp_roi
+
+    assert clamp_roi(BBox(0.875, 0.25, 0.25, 0.25)) == BBox(0.875, 0.25, 0.125, 0.25)
+
+
+@pytest.mark.parametrize("value", [0, 0.0, -1.0, "abc", None, True, [1.0]])
+def test_validate_reports_invalid_detection_interval_sec(value: object) -> None:
+    """detection.interval_sec must be a number > 0 (bool excluded)."""
+    errors = validate(
+        {"source": {"type": "webcam"}, "detection": {"interval_sec": value}}
+    )
+    assert any("detection.interval_sec" in e for e in errors)
+
+
+@pytest.mark.parametrize("value", [0.5, 1, 2.0])
+def test_validate_accepts_valid_detection_interval_sec(value: object) -> None:
+    errors = validate(
+        {"source": {"type": "webcam"}, "detection": {"interval_sec": value}}
+    )
+    assert not any("detection.interval_sec" in e for e in errors)
+
+
+@pytest.mark.parametrize("value", [0, 0.0, -5, "abc", None, True, [1.0]])
+def test_validate_reports_invalid_reconnect_interval_sec(value: object) -> None:
+    """source.reconnect_interval_sec must be a number > 0 (bool excluded)."""
+    errors = validate(
+        {"source": {"type": "webcam", "reconnect_interval_sec": value}}
+    )
+    assert any("source.reconnect_interval_sec" in e for e in errors)
+
+
+@pytest.mark.parametrize("value", [0.5, 5, 30.0])
+def test_validate_accepts_valid_reconnect_interval_sec(value: object) -> None:
+    errors = validate(
+        {"source": {"type": "webcam", "reconnect_interval_sec": value}}
+    )
+    assert not any("source.reconnect_interval_sec" in e for e in errors)
+
+
+@pytest.mark.parametrize("value", [-1, 1.5, "0", None, True])
+def test_validate_reports_invalid_webcam_index(value: object) -> None:
+    """source.webcam_index must be an int >= 0 (bool excluded)."""
+    errors = validate(
+        {"source": {"type": "webcam", "webcam_index": value}}
+    )
+    assert any("source.webcam_index" in e for e in errors)
+
+
+@pytest.mark.parametrize("value", [0, 1, 3])
+def test_validate_accepts_valid_webcam_index(value: int) -> None:
+    errors = validate({"source": {"type": "webcam", "webcam_index": value}})
+    assert not any("source.webcam_index" in e for e in errors)
 

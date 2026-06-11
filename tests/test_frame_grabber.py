@@ -196,3 +196,63 @@ def test_concurrent_latest_no_exception() -> None:
     grabber.stop()
 
     assert errors == [], f"Concurrent latest() raised exceptions: {errors}"
+
+
+# ---------------------------------------------------------------------------
+# Test 5 — §4.10: stop() must not hang forever when read() blocks
+# ---------------------------------------------------------------------------
+
+
+class BlockingSource:
+    """read() blocks until unblocked — simulates a stalled RTSP read."""
+
+    def __init__(self) -> None:
+        self._unblock = threading.Event()
+        self.entered_read = threading.Event()
+        self.release_calls = 0
+
+    def open(self) -> None:
+        pass
+
+    def read(self) -> Frame | None:
+        self.entered_read.set()
+        self._unblock.wait()
+        return None
+
+    def release(self) -> None:
+        self.release_calls += 1
+
+    @property
+    def is_opened(self) -> bool:
+        return True
+
+    def unblock(self) -> None:
+        self._unblock.set()
+
+
+def test_stop_returns_promptly_when_read_blocks_forever() -> None:
+    """With the grab thread stuck in read(), stop() must give up after the
+    join timeout (~2s) instead of hanging the (GUI) caller forever, and must
+    skip release() to avoid racing the still-blocked read().
+    """
+    source = BlockingSource()
+    grabber = FrameGrabber(source)
+    grabber.start()
+    try:
+        assert source.entered_read.wait(timeout=2.0), "grab thread never entered read()"
+
+        start = time.monotonic()
+        stopper = threading.Thread(target=grabber.stop, daemon=True)
+        stopper.start()
+        stopper.join(timeout=4.0)
+        elapsed = time.monotonic() - start
+
+        assert not stopper.is_alive(), "stop() is still blocked after 4s"
+        assert elapsed <= 2.5, f"stop() took {elapsed:.2f}s; expected <= ~2.5s"
+        assert source.release_calls == 0, (
+            "release() must be skipped when the grab thread could not be joined"
+        )
+        assert grabber.latest() is None, "latest() must be cleared even on join timeout"
+    finally:
+        # Let the daemon grab thread exit so it does not leak into other tests.
+        source.unblock()

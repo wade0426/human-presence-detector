@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QSoundEffect
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from src.duration_format import format_duration_zh
-from src.reminder.media import is_playable_video, load_pixmap, safe_sound_url
+from src.reminder.media import is_playable_video, load_pixmap
+from src.reminder.sound import QtSoundPlayer
 from src.types import ReminderContext
 from src.ui import strings
+
+logger = logging.getLogger(__name__)
 
 
 class PopupReminder(QDialog):
@@ -40,7 +45,9 @@ class PopupReminder(QDialog):
         self._media_player = QMediaPlayer(self)
         self._media_player.setAudioOutput(self._audio_output)
         self._media_player.setVideoOutput(self.video_widget)
-        self._sound_effect = QSoundEffect(self)
+        self._media_player.errorOccurred.connect(self._on_media_error)
+        # FR-2.4：提醒音使用第二組 QMediaPlayer＋QAudioOutput（與影片播放器分離），單次播放
+        self._sound_player = QtSoundPlayer(self)
 
     def show(self, ctx: ReminderContext | None = None) -> None:
         if ctx is None:
@@ -64,16 +71,23 @@ class PopupReminder(QDialog):
                 load_pixmap(ctx.media_path, fallback_text=strings.REMIND_TITLE)
             )
 
-        sound_url = safe_sound_url(ctx.sound_path)
-        if sound_url is not None:
-            self._sound_effect.setSource(sound_url)
-            self._sound_effect.play()
+        # 路徑為空/不存在/無法解碼的容錯由 QtSoundPlayer 處理（FR-2.6）
+        self._sound_player.play(ctx.sound_path)
 
         super().show()
 
     def hide(self) -> None:
         self._media_player.stop()
+        self._sound_player.stop()  # FR-2.5：關閉時一併停止提醒音
         super().hide()
+
+    def _on_media_error(self, error: QMediaPlayer.Error, error_string: str) -> None:
+        logger.warning(
+            "Media playback error (%s): %s - source=%s",
+            error.name,
+            error_string,
+            self._media_player.source().toLocalFile(),
+        )
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Close (X button) = hide only; do NOT emit start_rest. Popup repeats later."""

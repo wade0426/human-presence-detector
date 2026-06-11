@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from src.app.connection_state import ConnectionState, severity
 from src.ui.theme import DARK_TOKENS, LIGHT_TOKENS, ColorScheme, build_qss, tokens_for
 
 
@@ -33,3 +34,22 @@ def test_build_qss_contains_checked_and_danger_button_rules() -> None:
 
     assert "QPushButton:checked" in qss
     assert 'QPushButton[role="danger"]' in qss
+
+
+def test_build_qss_contains_muted_label_rule() -> None:
+    """§4.16: muted role must have its own QSS rule (not reuse 11px secondary)."""
+    qss = build_qss(LIGHT_TOKENS)
+
+    assert 'QLabel[role="muted"]' in qss
+
+
+def test_build_qss_covers_all_badge_roles() -> None:
+    """§4.16 regression guard: every role used by PresenceBadge / ConnectionBadge
+    must appear as a selector in the generated QSS."""
+    qss = build_qss(LIGHT_TOKENS)
+
+    connection_roles = {severity(state) for state in ConnectionState}
+    presence_roles = {"success", "muted"}
+
+    for role in sorted(connection_roles | presence_roles):
+        assert f'[role="{role}"]' in qss, f"no QSS rule for role={role!r}"

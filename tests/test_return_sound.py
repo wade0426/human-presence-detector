@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
 import pytest
+from PySide6.QtMultimedia import QMediaPlayer
 
 from src.config import ReturnSoundConfig
 from src.reminder.return_prompt import ReturnPromptDialog
-from src.reminder.sound import QtLoopingSoundPlayer
+from src.reminder.sound import QtLoopingSoundPlayer, QtSoundPlayer
 
 
 class FakePlayer:
@@ -31,6 +35,48 @@ def test_qt_player_stop_before_play_no_crash(qtbot):
     """未呼叫 play() 即呼叫 stop() 不崩潰"""
     player = QtLoopingSoundPlayer()
     player.stop()  # 不應丟例外
+
+
+# --- 需求二 FR-2.1～2.6：QMediaPlayer 替換 ---
+
+
+@pytest.mark.qt
+def test_qt_looping_player_uses_qmediaplayer_with_infinite_loops(qtbot):
+    """FR-2.2/2.3：底層為 QMediaPlayer 且設定無限循環"""
+    player = QtLoopingSoundPlayer()
+    assert isinstance(player._player, QMediaPlayer)
+    assert player._player.loops() == QMediaPlayer.Loops.Infinite.value
+
+
+@pytest.mark.qt
+def test_qt_sound_player_defaults_to_single_shot(qtbot):
+    """QtSoundPlayer 預設單次播放（popup 提醒音與設定頁試聽重用）"""
+    player = QtSoundPlayer()
+    assert isinstance(player._player, QMediaPlayer)
+    assert player._player.loops() == 1
+
+
+@pytest.mark.qt
+def test_qt_player_logs_error_for_undecodable_file(qtbot, tmp_path: Path, caplog):
+    """FR-2.6：存在但無法解碼的檔案 → play() 不拋例外，且 log 記錄含來源路徑"""
+    bad = tmp_path / "garbage.mp3"
+    bad.write_bytes(b"this is definitely not valid mp3 audio data" * 64)
+    player = QtLoopingSoundPlayer()
+    with caplog.at_level(logging.WARNING, logger="src.reminder.sound"):
+        player.play(str(bad))  # 不應丟例外
+        qtbot.waitUntil(
+            lambda: any("garbage.mp3" in record.getMessage() for record in caplog.records),
+            timeout=5000,
+        )
+
+
+@pytest.mark.qt
+def test_qt_player_is_playing_false_when_stopped(qtbot):
+    """is_playing() 在未播放/停止時回傳 False"""
+    player = QtSoundPlayer()
+    assert player.is_playing() is False
+    player.stop()
+    assert player.is_playing() is False
 
 
 # --- M1b 新增測試 ---

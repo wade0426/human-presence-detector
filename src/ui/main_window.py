@@ -7,7 +7,7 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QPushButton, QVBoxLayout, QWidget
 
 from src.app.connection_state import ConnectionState, from_status
-from src.config import AppConfig, save_config
+from src.config import AppConfig, ConfigError, clamp_roi, load_config, save_config
 from src.logging_store import TodaySummary
 from src.today_work_model import TodayWorkModel
 from src.types import BBox, Frame, TimerSnapshot
@@ -117,10 +117,23 @@ class MainWindow(QMainWindow):
         self._refresh_base()
 
     def _on_roi_committed(self, roi: BBox) -> None:
-        updated = set_value(self._config, "presence.roi", roi)
+        # §4.8 防鎖死（縱深防禦）：寫檔前 clamp，確保不會寫出下次啟動
+        # 會被驗證拒絕的越界 roi。
+        roi = clamp_roi(roi)
+        # §4.7: 以磁碟上的最新 config 為基底再套用 roi，避免把設定視窗剛存的
+        # 值蓋回啟動時注入的舊值；磁碟讀取失敗時退回目前持有的 config。
+        try:
+            base = load_config(self._config_path)
+        except ConfigError:
+            base = self._config
+        updated = set_value(base, "presence.roi", roi)
         self._config = updated
         save_config(updated, self._config_path)
         self.roi_changed.emit(roi)
+
+    def set_paused(self, paused: bool) -> None:
+        """§4.11: 由外部（托盤/主程式）同步暫停按鈕狀態，不重發 request_pause。"""
+        self._actions.set_paused(paused)
 
     def on_frame_ready(self, frame: Frame) -> None:
         self._preview.set_frame(frame)

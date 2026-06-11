@@ -106,6 +106,40 @@ CLEAR_RESET_WARNING = "此選項將清空所有紀錄，並將設定回復為預
 CLEAR_CONFIRM_BODY = "此操作無法復原，確定要繼續嗎？"
 CLEAR_DONE = "已清除 {count} 筆紀錄。"
 
+# Sound preview (需求三 FR-3.1～3.7、FR-2.7)
+SOUND_PREVIEW_PLAY = "試聽"
+SOUND_PREVIEW_STOP = "停止"
+SOUND_PREVIEW_ERROR = "無法播放此音檔"
+SOUND_FILE_FILTER = "音訊檔 (*.mp3 *.wav);;所有檔案 (*)"
+FILE_DIALOG_TITLE = "選擇檔案"
+FILE_DIALOG_ALL_FILES = "所有檔案 (*)"
+
 # Force lock (M3)
 FORCE_LOCK_COUNTDOWN = "{seconds} 秒後將鎖定畫面，請準備休息。"
 FORCE_LOCK_CANCEL = "取消本次鎖定"
+
+# GPU CUDA 檢查（需求一 FR-1.1～1.6）
+CUDA_CHECK_BUTTON = "檢查"
+CUDA_CHECK_RUNNING = "檢查中…"
+CUDA_CHECK_TITLE = "GPU CUDA 檢查"
+CUDA_CHECK_OK = "✓ 本機可使用 GPU CUDA"
+CUDA_CHECK_FAIL = "✗ 本機目前無法使用 GPU CUDA"
+CUDA_SUGGEST = "建議的運算裝置：{device}"
+CUDA_FALLBACK_NOTICE = "CUDA 初始化失敗，已改用 CPU 繼續偵測。"
+CUDA_STATE_NO_TORCH = "未安裝 PyTorch，請先安裝 PyTorch 後再使用 GPU。"
+CUDA_STATE_CPU_ONLY = "目前安裝的是 CPU 版 PyTorch，需改裝 CUDA 版 PyTorch 才能使用 GPU。"
+CUDA_STATE_CUDA_UNAVAILABLE = (
+    "PyTorch 具備 CUDA 支援，但目前無法使用 GPU，請檢查 NVIDIA 驅動程式與顯示卡。"
+)
+CUDA_STATE_OK = "CUDA 環境正常，可使用 GPU 加速偵測。"
+CUDA_TORCH_VERSION = "PyTorch 版本：{value}"
+CUDA_BUILD_VERSION = "CUDA build 版本：{value}"
+CUDA_BUILD_NONE = "無（CPU 版 PyTorch）"
+CUDA_AVAILABLE = "CUDA 可用：{value}"
+CUDA_DEVICE_COUNT = "GPU 數量：{value}"
+CUDA_CUDNN_VERSION = "cuDNN 版本：{value}"
+CUDA_ERROR = "錯誤訊息：{value}"
+CUDA_VALUE_NONE = "無"
+CUDA_VALUE_NOT_INSTALLED = "未安裝"
+CUDA_VALUE_YES = "是"
+CUDA_VALUE_NO = "否"

@@ -3,16 +3,15 @@ from __future__ import annotations
 import signal
 import sys
 
-from PySide6.QtCore import QThread, QTimer
+from PySide6.QtCore import QObject, QThread, QTimer, Slot
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from src.app.clear_data import ClearDataService
-from src.app.connection_state import from_status
 from src.app.force_lock_controller import ForceLockController
 from src.app.worker import DetectionWorker
 from src.capture.frame_grabber import FrameGrabber
 from src.capture.video_source import create_source
-from src.config import AppConfig, load_config
+from src.config import AppConfig, ConfigError, load_config
 from src.detection.detector import PersonDetector
 from src.logging_setup import setup_logging, suppress_decoder_noise
 from src.logging_store import SessionStore
@@ -24,9 +23,30 @@ from src.types import ReminderContext, RestCountMode
 from src.ui.clear_data_dialog import run_clear_data_flow
 from src.ui.main_window import MainWindow
 from src.ui.settings import SettingsWindow
-from src.ui.strings import QUIT_CONFIRM_BODY, QUIT_CONFIRM_TITLE
+from src.ui.strings import (
+    CUDA_CHECK_TITLE,
+    CUDA_FALLBACK_NOTICE,
+    QUIT_CONFIRM_BODY,
+    QUIT_CONFIRM_TITLE,
+)
 from src.ui.theme import ThemeManager
 from src.ui.tray import TrayIcon
+
+
+class _DeviceFallbackNotifier(QObject):
+    """FR-1.6 ＋ §4.6：以 QObject slot 接收 worker 的 device_fallback 訊號。
+
+    worker 在偵測執行緒發訊號；連到主執行緒 QObject 的 bound method 會自動以
+    queued connection 送回主執行緒，托盤 UI 操作不會跑在偵測執行緒。
+    """
+
+    def __init__(self, tray: TrayIcon) -> None:
+        super().__init__()
+        self._tray = tray
+
+    @Slot(str)
+    def on_device_fallback(self, _device: str) -> None:
+        self._tray.showMessage(CUDA_CHECK_TITLE, CUDA_FALLBACK_NOTICE)
 
 
 def _shutdown_worker_thread(worker: DetectionWorker, thread: QThread) -> None:
@@ -56,7 +76,8 @@ def _build_worker(cfg: AppConfig, store: SessionStore, grabber: FrameGrabber) ->
         RestCountMode(cfg.timer.rest_count_mode),
     )
     reminder_context = ReminderContext(
-        work_minutes=int(cfg.timer.work_threshold_min),
+        # §4.14: keep fractional minutes (no int() truncation).
+        work_minutes=cfg.timer.work_threshold_min,
         media_path=cfg.reminder.popup.media_path,
         media_type=cfg.reminder.popup.media_type,
         sound_path=cfg.reminder.popup.sound_path,
@@ -69,6 +90,7 @@ def _build_worker(cfg: AppConfig, store: SessionStore, grabber: FrameGrabber) ->
         store=store,
         detection_interval_sec=cfg.detection.interval_sec,
         reminder_context=reminder_context,
+        logging_enabled=cfg.logging.enabled,  # §4.8: honour the logging.enabled setting
     )
 
 
@@ -81,10 +103,16 @@ def _maybe_build_force_lock(cfg: AppConfig) -> ForceLockController | None:
 def main() -> int:
     suppress_decoder_noise()
     setup_logging()
+    # §4.5: 設定錯誤一律以清楚的 ConfigError 訊息呈現並以非零碼退出，
+    # 不得讓原始 traceback 外洩；在建 UI 之前先驗證（fail fast）。
+    try:
+        cfg = load_config("config.yaml")
+    except ConfigError as exc:
+        print(f"設定檔錯誤，請修正 config.yaml 後重新啟動：\n{exc}", file=sys.stderr)
+        return 1
     existing_app = QApplication.instance()
     app = existing_app if isinstance(existing_app, QApplication) else QApplication(sys.argv)
     ThemeManager(app).apply()
-    cfg = load_config("config.yaml")
     store = SessionStore(cfg.logging.db_path)
 
     # M3: FrameGrabber (independent high-frequency capture thread)
@@ -135,10 +163,15 @@ def main() -> int:
     # Signal wiring
     worker.presence_changed.connect(window.on_presence_changed)           # Req 1
     worker.timer_updated.connect(window.on_timer_updated)
-    worker.timer_updated.connect(lambda snapshot: tray.set_timer_state(snapshot.state))
+    # §4.6: 連到 TrayIcon 的 bound method（QObject slot），PySide6 會自動以
+    # queued connection 把呼叫送回主執行緒；lambda 會直接在偵測執行緒執行。
+    worker.timer_updated.connect(tray.on_timer_updated)
     worker.connection_status.connect(window.on_connection_status)
-    worker.connection_status.connect(lambda status: tray.set_connection(from_status(status)))
+    worker.connection_status.connect(tray.on_connection_status)
     worker.failed.connect(window.on_failed)
+    # FR-1.6: CUDA fallback 通知（偵測執行緒 → queued → 主執行緒 → 托盤氣泡）。
+    fallback_notifier = _DeviceFallbackNotifier(tray)
+    worker.device_fallback.connect(fallback_notifier.on_device_fallback)
     worker.reminder_show.connect(reminder.show)                            # Req 4
     worker.return_prompt.connect(return_prompt_dialog.show_prompt)         # Req 3
     if hasattr(reminder, "start_rest"):
@@ -158,6 +191,8 @@ def main() -> int:
         else:
             worker.request_resume()
             preview_timer.start()  # Req 5: resume preview
+        # §4.11: 暫停狀態單一事實來源——任一入口切換後，主視窗按鈕與托盤文字同步。
+        window.set_paused(paused)
         tray.set_paused(paused)
 
     def _confirm_quit() -> None:

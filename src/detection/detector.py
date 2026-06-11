@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from src.types import BBox, Detection, Frame
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_device(device: str) -> str:
@@ -23,6 +26,8 @@ class PersonDetector:
         self._confidence = confidence
         self._device = _resolve_device(device)
         self.model: Any | None = None
+        # FR-1.6：裝置初始化失敗自動退回 CPU 時設為 True，供 worker 通知 UI。
+        self.device_fallback: bool = False
 
     def detect(self, frame: Frame) -> list[Detection]:
         detections: list[Detection] = []
@@ -48,8 +53,23 @@ class PersonDetector:
 
     def _ensure_model(self) -> Any:
         if self.model is None:
-            from ultralytics import YOLO
+            from ultralytics import YOLO  # type: ignore[attr-defined]
 
-            self.model = YOLO(self._model_path)
-            self.model.to(self._device)
+            model = YOLO(self._model_path)
+            try:
+                model.to(self._device)
+            except Exception as exc:
+                # FR-1.6：CUDA 初始化失敗（AssertionError/RuntimeError 等）時
+                # 自動退回 CPU 繼續偵測，不得讓偵測迴圈終止。
+                if self._device == "cpu":
+                    raise  # CPU 本身失敗沒有退路，交由 worker 的 failed 機制處理
+                logger.warning(
+                    "無法將模型移至裝置 %s（%s），自動退回 CPU 繼續偵測。",
+                    self._device,
+                    exc,
+                )
+                model.to("cpu")
+                self._device = "cpu"
+                self.device_fallback = True
+            self.model = model
         return self.model

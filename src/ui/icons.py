@@ -23,9 +23,14 @@ def make_app_icon(size: int = 64) -> QIcon:
     return QIcon(pixmap)
 
 
-def load_app_icon(asset_path: str = "data/assets/icon_1024.png", size: int = 64) -> QIcon:
+# Anchored to this module's location so the asset resolves regardless of CWD
+# (icons.py lives in src/ui/, so parents[2] is the project root).
+_DEFAULT_ICON_PATH = Path(__file__).resolve().parents[2] / "data" / "assets" / "icon.png"
+
+
+def load_app_icon(asset_path: str | Path | None = None, size: int = 64) -> QIcon:
     """Load an icon from disk and fall back to an in-memory icon when needed."""
-    asset = Path(asset_path)
+    asset = Path(asset_path) if asset_path is not None else _DEFAULT_ICON_PATH
     if asset.exists():
         icon = QIcon(str(asset))
         if not icon.isNull():

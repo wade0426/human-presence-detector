@@ -71,6 +71,9 @@ QLabel[role="secondary"] {{
     color: {tokens.text_secondary};
     font-size: 11px;
 }}
+QLabel[role="muted"] {{
+    color: {tokens.text_secondary};
+}}
 QLabel[role="danger"] {{
     color: {tokens.danger};
 }}

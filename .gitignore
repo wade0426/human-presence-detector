@@ -183,5 +183,6 @@ cython_debug/
 *.txt
 *.json
 *.png
-/data
 /.agent
+/data/model
+data/records.sqlite

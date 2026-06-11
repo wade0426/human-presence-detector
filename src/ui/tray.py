@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from PySide6.QtCore import Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
-from src.app.connection_state import ConnectionState
-from src.types import TimerState
+from src.app.connection_state import ConnectionState, from_status
+from src.types import TimerSnapshot, TimerState
 from src.ui import strings
 from src.ui.icons import load_app_icon
 
@@ -37,6 +38,17 @@ class TrayIcon(QSystemTrayIcon):
 
     def update_status(self, state: TimerState) -> None:
         self.set_timer_state(state)
+
+    # §4.6: thin QObject slots — worker signals connect to these bound methods so
+    # PySide6 auto-queues the call back to the GUI thread (lambdas would run the
+    # QSystemTrayIcon UI updates on the detection thread).
+    @Slot(object)
+    def on_timer_updated(self, snapshot: TimerSnapshot) -> None:
+        self.set_timer_state(snapshot.state)
+
+    @Slot(str)
+    def on_connection_status(self, status: str) -> None:
+        self.set_connection(from_status(status))
 
     def set_paused(self, paused: bool) -> None:
         self._paused = paused

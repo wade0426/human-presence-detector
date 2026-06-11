@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -7,6 +8,12 @@ from typing import Protocol
 
 from src.capture.video_source import VideoSource
 from src.types import Frame
+
+logger = logging.getLogger(__name__)
+
+# §4.10: upper bound for waiting on the grab thread during stop(); a thread
+# stuck in a blocking read() must not freeze the (GUI) caller forever.
+STOP_JOIN_TIMEOUT_SEC = 2.0
 
 
 class FrameProvider(Protocol):
@@ -48,11 +55,28 @@ class FrameGrabber:
         self._thread.start()
 
     def stop(self) -> None:
-        """Signal the thread to stop, wait for it, then release the source."""
+        """Signal the thread to stop, wait for it (bounded), then release the source.
+
+        §4.10: the join is bounded by :data:`STOP_JOIN_TIMEOUT_SEC`. If the grab
+        thread is stuck in a blocking ``read()`` (e.g. stalled RTSP), we give up
+        waiting — the thread is a daemon and will be reclaimed at process exit —
+        and we skip ``release()`` to avoid racing the still-blocked ``read()``
+        on the underlying capture object.
+        """
         self._running = False
-        if self._thread is not None:
-            self._thread.join()
-            self._thread = None
+        thread = self._thread
+        self._thread = None
+        if thread is not None:
+            thread.join(timeout=STOP_JOIN_TIMEOUT_SEC)
+            if thread.is_alive():
+                logger.warning(
+                    "Grab thread did not stop within %.1fs (blocked read?); "
+                    "skipping source release.",
+                    STOP_JOIN_TIMEOUT_SEC,
+                )
+                with self._lock:
+                    self._latest = None
+                return
         self._source.release()
         with self._lock:
             self._latest = None

@@ -117,12 +117,34 @@ def validate(raw: dict[str, Any]) -> list[str]:
     if source_type == "rtsp" and not str(source.get("rtsp_url", "")).strip():
         errors.append("source.rtsp_url must be non-empty when source.type is 'rtsp'")
 
+    webcam_index = source.get("webcam_index", SourceConfig.webcam_index)
+    if (
+        not isinstance(webcam_index, int)
+        or isinstance(webcam_index, bool)
+        or webcam_index < 0
+    ):
+        errors.append("source.webcam_index must be an integer >= 0")
+
+    reconnect_interval_sec = source.get(
+        "reconnect_interval_sec", SourceConfig.reconnect_interval_sec
+    )
+    if not _greater_than_zero(reconnect_interval_sec):
+        errors.append("source.reconnect_interval_sec must be a number > 0")
+
     detection = _section(raw, "detection")
     confidence = detection.get("confidence", DetectionConfig.confidence)
     if not _in_range(confidence, min_value=0.0, max_value=1.0, include_min=False):
         errors.append("detection.confidence must satisfy 0 < confidence <= 1")
 
+    interval_sec = detection.get("interval_sec", DetectionConfig.interval_sec)
+    if not _greater_than_zero(interval_sec):
+        errors.append("detection.interval_sec must be a number > 0")
+
     presence = _section(raw, "presence")
+    roi = presence.get("roi")
+    if roi is not None:
+        errors.extend(_validate_roi(roi))
+
     min_box_height_ratio = presence.get(
         "min_box_height_ratio", PresenceConfig.min_box_height_ratio
     )
@@ -200,11 +222,21 @@ def load_config(path: str) -> AppConfig:
     if not config_path.exists():
         return AppConfig()
 
-    with config_path.open("r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle) or {}
+    # §4.5：所有設定載入錯誤一律以 ConfigError 呈現——YAML 語法錯誤
+    # （yaml.YAMLError）與 IO 錯誤（OSError）不得以原始例外外洩，
+    # 否則 main()/settings/main_window 的 except ConfigError 全部攔不到。
+    try:
+        with config_path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"設定檔 YAML 語法錯誤（{path}）：{exc}") from exc
+    except OSError as exc:
+        raise ConfigError(f"無法讀取設定檔（{path}）：{exc}") from exc
 
     if not isinstance(data, dict):
         raise ConfigError("Config root must be a mapping")
+
+    _migrate_out_of_range_roi(data)
 
     errors = validate(data)
     if errors:
@@ -237,6 +269,70 @@ def _in_range(
         return False
     lower_ok = value >= min_value if include_min else value > min_value
     return lower_ok and value <= max_value
+
+
+def _validate_roi(value: Any) -> list[str]:
+    """Validate the raw ``presence.roi`` value before ``_roi_from_raw`` runs.
+
+    Errors are reported via :func:`validate` so malformed roi values surface as
+    :class:`ConfigError` instead of raw TypeError/ValueError from ``float()``.
+    """
+    if not isinstance(value, list) or len(value) != 4:
+        return ["presence.roi must be a list of 4 numbers [x, y, w, h]"]
+    if not all(
+        isinstance(part, (int, float)) and not isinstance(part, bool)
+        for part in value
+    ):
+        return ["presence.roi values must all be numbers"]
+
+    x, y, w, h = value
+    errors: list[str] = []
+    if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+        errors.append("presence.roi x and y must satisfy 0 <= value <= 1")
+    if not (w > 0.0 and h > 0.0):
+        errors.append("presence.roi w and h must be > 0")
+    if x + w > 1.0 or y + h > 1.0:
+        errors.append("presence.roi must satisfy x + w <= 1 and y + h <= 1")
+    return errors
+
+
+def clamp_roi(roi: BBox) -> BBox:
+    """把越界的 roi 夾回合法範圍（§4.8 防鎖死）。
+
+    x、y 夾進 [0, 1]，w、h 夾至不超出右/下邊界；夾完後寬高歸零（退化）
+    時回退預設 roi。
+    """
+    x = min(max(roi.x, 0.0), 1.0)
+    y = min(max(roi.y, 0.0), 1.0)
+    w = min(roi.w, 1.0 - x)
+    h = min(roi.h, 1.0 - y)
+    if w <= 0.0 or h <= 0.0:
+        default = PresenceConfig().roi
+        return BBox(default.x, default.y, default.w, default.h)
+    return BBox(x, y, w, h)
+
+
+def _migrate_out_of_range_roi(data: dict[str, Any]) -> None:
+    """舊版 ROI 框選無 clamp，config.yaml 可能殘留越界值（如 x+w>1）。
+
+    結構正確（長度 4 的數值 list）但數值越界的 roi 在載入時夾回合法範圍，
+    避免驗證把程式自己寫出的設定檔整檔拒絕、導致啟動被鎖死（§4.8）。
+    結構損壞的 roi 不在此處理，仍交由 :func:`validate` 回報錯誤。
+    """
+    presence = data.get("presence")
+    if not isinstance(presence, dict):
+        return
+    roi = presence.get("roi")
+    if not isinstance(roi, list) or len(roi) != 4:
+        return
+    if not all(
+        isinstance(part, (int, float)) and not isinstance(part, bool) for part in roi
+    ):
+        return
+    if not _validate_roi(roi):
+        return  # 已合法，不需遷移
+    clamped = clamp_roi(BBox(*(float(part) for part in roi)))
+    presence["roi"] = [clamped.x, clamped.y, clamped.w, clamped.h]
 
 
 def _app_config_from_dict(raw: dict[str, Any]) -> AppConfig:

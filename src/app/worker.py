@@ -10,7 +10,11 @@ from typing import Any
 from PySide6.QtCore import QObject, Signal
 
 from src.capture.frame_grabber import FrameProvider
-from src.capture.stream_health import StreamHealth, StreamHealthMonitor
+from src.capture.stream_health import (
+    DEFAULT_NO_SIGNAL_GRACE_SEC,
+    StreamHealth,
+    StreamHealthMonitor,
+)
 from src.types import BBox, ReminderContext, TimerEvent, TimerEventType
 
 _STREAM_STATUS_MAP: dict[StreamHealth, str] = {
@@ -28,6 +32,8 @@ class DetectionWorker(QObject):
     return_prompt = Signal()
     connection_status = Signal(str)
     failed = Signal(str)
+    # FR-1.6：偵測端裝置 fallback（CUDA→CPU）發生時通知一次，參數為改用的裝置。
+    device_fallback = Signal(str)
 
     def __init__(
         self,
@@ -40,6 +46,7 @@ class DetectionWorker(QObject):
         reminder_context: ReminderContext,
         clock: Callable[[], float] = time.monotonic,
         stream_health_monitor: StreamHealthMonitor | None = None,
+        logging_enabled: bool = True,
     ) -> None:
         super().__init__()
         self._frames = frames
@@ -50,7 +57,21 @@ class DetectionWorker(QObject):
         self._detection_interval_sec = detection_interval_sec
         self._reminder_context = reminder_context
         self._clock = clock
-        self._stream_health = stream_health_monitor or StreamHealthMonitor(clock=clock)
+        # §4.2：預設健康監視器帶 no-signal 寬限期——來源影格週期長於偵測輪詢
+        # 間隔（低 FPS 子碼流）的健康串流，不得被間歇誤判為無訊號。
+        self._stream_health = stream_health_monitor or StreamHealthMonitor(
+            clock=clock,
+            no_signal_after_sec=max(
+                DEFAULT_NO_SIGNAL_GRACE_SEC, 2.0 * detection_interval_sec
+            ),
+        )
+        self._logging_enabled = logging_enabled
+        # §4.2: timestamp of the last frame actually processed; lets us tell a
+        # fresh frame apart from a stale one left in the grabber after the
+        # stream froze or disconnected.
+        self._last_frame_ts: float | None = None
+        # FR-1.6: device fallback is reported to the UI at most once.
+        self._device_fallback_notified = False
         self._stop = False
         self._paused = False
         self._work_start_dt: datetime | None = None
@@ -74,7 +95,11 @@ class DetectionWorker(QObject):
                 loop_start = self._clock()
                 frame = self._frames.latest()
                 now = self._clock()
-                if frame is None:
+                # §4.2: a frame is only "fresh" if its timestamp advanced past
+                # the last processed one. A stale (frozen) frame must go down
+                # the health-check branch — never into detection — so that a
+                # broken stream cannot keep the presence state alive forever.
+                if frame is None or frame.timestamp == self._last_frame_ts:
                     is_opened = self._frames.is_opened
                     health = self._stream_health.update(
                         has_frame=False, is_opened=is_opened, now=now
@@ -83,11 +108,13 @@ class DetectionWorker(QObject):
                     time.sleep(0.2)
                     continue
 
+                self._last_frame_ts = frame.timestamp
                 health = self._stream_health.update(
                     has_frame=True, is_opened=True, now=now
                 )
                 self.connection_status.emit(_STREAM_STATUS_MAP[health])
                 detections = self._detector.detect(frame)
+                self._notify_device_fallback_once()
                 present = self._presence_evaluator.update(detections)
                 self.presence_changed.emit(present)
 
@@ -109,6 +136,14 @@ class DetectionWorker(QObject):
 
     def stop(self) -> None:
         self._stop = True
+
+    def _notify_device_fallback_once(self) -> None:
+        """FR-1.6：偵測啟動後若發生裝置 fallback（CUDA→CPU），通知 UI 一次。"""
+        if self._device_fallback_notified:
+            return
+        if getattr(self._detector, "device_fallback", False):
+            self._device_fallback_notified = True
+            self.device_fallback.emit("cpu")
 
     def request_pause(self) -> None:
         with self._command_lock:
@@ -197,14 +232,17 @@ class DetectionWorker(QObject):
         elif event.type == TimerEventType.WORK_STARTED:
             self._work_start_dt = now_dt
         elif event.type == TimerEventType.WORK_ENDED:
-            self._store.log_session(
-                "work",
-                self._work_start_dt or now_dt,
-                now_dt,
-                int(event.duration_sec),
-                event.ended_by,
-            )
+            # §4.8: honour the logging.enabled setting — skip persistence when off.
+            if self._logging_enabled:
+                self._store.log_session(
+                    "work",
+                    self._work_start_dt or now_dt,
+                    now_dt,
+                    int(event.duration_sec),
+                    event.ended_by,
+                )
             self._work_start_dt = None
         elif event.type == TimerEventType.REST_ENDED:
-            start_dt = now_dt - timedelta(seconds=event.duration_sec)
-            self._store.log_session("rest", start_dt, now_dt, int(event.duration_sec), "")
+            if self._logging_enabled:
+                start_dt = now_dt - timedelta(seconds=event.duration_sec)
+                self._store.log_session("rest", start_dt, now_dt, int(event.duration_sec), "")

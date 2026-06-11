@@ -28,7 +28,8 @@ class FloatingReminder(QWidget):
         if ctx is None:
             super().show()
             return
-        self._remaining = max(ctx.work_minutes * 60, 1)
+        # §4.14: round to whole seconds (work_minutes may be fractional, e.g. 0.1 → 6s).
+        self._remaining = max(round(ctx.work_minutes * 60), 1)
         self._flash = False
         self._update_label()
         self._timer.start(1000)

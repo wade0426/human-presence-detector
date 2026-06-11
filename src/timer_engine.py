@@ -39,18 +39,25 @@ class TimerEngine:
         # Pause support (FR-2)
         # ─────────────────────────────────────────────────────────────────────
         # Freeze contract:
-        #   pause(now) : sets _paused=True, records _state_before_pause.
+        #   pause(now) : sets _paused=True and records _pause_started_at.
         #                Does NOT update _last_t or _work_elapsed — all
         #                elapsed counters remain frozen at the values they
         #                held when pause() was called.
         #   update()   : returns [] immediately while _paused, so no dt is
         #                ever accumulated during the suspended interval.
-        #   resume(now): sets _paused=False and resets _last_t = now.
-        #                The next update() sees (now - _last_t) ≈ 0, so no
-        #                "phantom" time is credited for the pause duration.
+        #   resume(now): sets _paused=False and resets _last_t = now, so the
+        #                next update() sees dt ≈ 0 and no "phantom" time is
+        #                credited for the pause duration. Absolute timestamps
+        #                (_away_since, _reminder_last_t, _rest_started_at,
+        #                _rest_start_t) are shifted forward by the pause
+        #                duration (clamped to `now`), which is equivalent to
+        #                freezing them while paused (§4.4).
+        #   Commands (start_rest / confirm_return) issued while paused take
+        #   effect on _state directly; resume() deliberately does NOT restore
+        #   any pre-pause state, so those commands survive the resume (§4.1).
         # ─────────────────────────────────────────────────────────────────────
         self._paused: bool = False
-        self._state_before_pause: TimerState = TimerState.IDLE
+        self._pause_started_at: float | None = None
 
     @property
     def state(self) -> TimerState:
@@ -199,9 +206,14 @@ class TimerEngine:
         """
         if self._state != TimerState.AWAITING_RETURN:
             return []
+        # While paused, time is frozen at _pause_started_at — a confirm issued
+        # during the pause must not count the pause interval as rest time.
+        effective_now = now
+        if self._paused and self._pause_started_at is not None:
+            effective_now = min(now, self._pause_started_at)
         rest_duration = 0.0
         if self._rest_started_at is not None:
-            rest_duration = now - self._rest_started_at
+            rest_duration = max(0.0, effective_now - self._rest_started_at)
         events: list[TimerEvent] = [
             self._event(TimerEventType.REST_ENDED, now, duration_sec=rest_duration),
             self._event(TimerEventType.WORK_STARTED, now),
@@ -217,13 +229,13 @@ class TimerEngine:
     def pause(self, now: float) -> None:
         """Suspend the timer, freezing all elapsed counters.
 
-        FR-2 freeze contract: records current _state, sets _paused=True.
+        FR-2 freeze contract: records the pause start time, sets _paused=True.
         _last_t and _work_elapsed are intentionally NOT updated here so that
         no phantom time is added during the suspension period.
         """
         if not self._paused:
-            self._state_before_pause = self._state
             self._paused = True
+            self._pause_started_at = now
             # Deliberately do NOT update _last_t here — this ensures _last_t
             # stays at whatever value it was before the pause, and the next
             # update() after resume() will see dt ≈ 0 (because resume() resets
@@ -235,11 +247,41 @@ class TimerEngine:
         FR-2 freeze contract: sets _paused=False and resets _last_t = now so
         that the next update() call computes dt = (new_now - now) ≈ 0,
         preventing any back-attribution of time during the pause interval.
+
+        §4.4: absolute timestamps are shifted forward by the pause duration
+        (equivalent to freezing them while paused) so that the pause interval
+        is never counted toward away-reset, reminder-repeat or rest durations.
+
+        §4.1: _state is NOT touched here — commands executed while paused
+        (start_rest / confirm_return) must survive the resume.
         """
-        if self._paused:
-            self._paused = False
-            self._last_t = now  # ★ Key: reset baseline so next dt ≈ 0
-            self._state = self._state_before_pause
+        if not self._paused:
+            return
+        self._paused = False
+        self._last_t = now  # ★ Key: reset baseline so next dt ≈ 0
+
+        pause_duration = 0.0
+        if self._pause_started_at is not None:
+            pause_duration = max(0.0, now - self._pause_started_at)
+        self._pause_started_at = None
+
+        if pause_duration > 0.0:
+            self._away_since = self._shifted(self._away_since, pause_duration, now)
+            self._reminder_last_t = self._shifted(self._reminder_last_t, pause_duration, now)
+            self._rest_started_at = self._shifted(self._rest_started_at, pause_duration, now)
+            self._rest_start_t = self._shifted(self._rest_start_t, pause_duration, now)
+
+    @staticmethod
+    def _shifted(timestamp: float | None, pause_duration: float, now: float) -> float | None:
+        """Shift an absolute timestamp forward by the pause duration.
+
+        Clamped to `now`: a timestamp recorded *during* the pause (by a
+        command such as start_rest) is treated as recorded at resume time,
+        since no time elapses while paused.
+        """
+        if timestamp is None:
+            return None
+        return min(timestamp + pause_duration, now)
 
     def snapshot(self, now: float) -> TimerSnapshot:
         state = TimerState.SUSPENDED if self._paused else self._state

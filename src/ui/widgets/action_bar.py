@@ -45,6 +45,19 @@ class ActionBar(QWidget):
         self._pause_btn.setText(ACTION_RESUME if checked else ACTION_PAUSE)
         self.pause_toggled.emit(checked)
 
+    def set_paused(self, paused: bool) -> None:
+        """§4.11: sync checked state/text from an external source (e.g. the tray).
+
+        blockSignals prevents re-emitting ``pause_toggled`` and re-entering
+        ``_toggle_pause`` when the change did not originate from a user click.
+        """
+        self._pause_btn.blockSignals(True)
+        try:
+            self._pause_btn.setChecked(paused)
+        finally:
+            self._pause_btn.blockSignals(False)
+        self._pause_btn.setText(ACTION_RESUME if paused else ACTION_PAUSE)
+
     def _on_roi_toggled(self, checked: bool) -> None:
         self.set_edit_active(checked)
         self.edit_roi_toggled.emit(checked)

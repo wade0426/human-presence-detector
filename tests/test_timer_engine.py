@@ -469,3 +469,172 @@ def test_resume_first_update_has_near_zero_dt() -> None:
     assert abs(snap.work_elapsed_sec - 5.1) < 0.01, (
         "Resume must not back-attribute pause interval as work time"
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 新增測試（proposal §4.1：resume 不得以過期狀態覆寫指令結果）
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_confirm_return_during_pause_survives_resume() -> None:
+    """§4.1 測試 A：AWAITING_RETURN → pause → confirm_return → resume。
+
+    resume 後狀態必須是 WORKING（而非被過期的 _state_before_pause 覆寫回
+    AWAITING_RETURN 造成死鎖），且事件不重複。
+    """
+    engine = _engine(required_rest_sec=5.0, rest_count_mode=RestCountMode.FIXED)
+    engine.update(True, 0.0)
+    engine.update(True, 10.0)  # → REMINDING
+    engine.start_rest(10.0)  # → RESTING, rest_started_at = 10
+    engine.update(True, 15.0)  # rest satisfied → AWAITING_RETURN
+    assert engine.state == TimerState.AWAITING_RETURN
+
+    engine.pause(16.0)
+    # 使用者在暫停期間按下歡迎回來對話框的確認鈕
+    events = engine.confirm_return(20.0)
+    types = [e.type for e in events]
+    assert TimerEventType.REST_ENDED in types
+    assert TimerEventType.WORK_STARTED in types
+    # 暫停期間（16→20 共 4 秒）不得計入休息時長：實際休息 = 16 - 10 = 6 秒
+    rest_ended = next(e for e in events if e.type == TimerEventType.REST_ENDED)
+    assert abs(rest_ended.duration_sec - 6.0) < 0.01
+
+    engine.resume(30.0)
+    assert engine.state == TimerState.WORKING, (
+        "resume must not overwrite state back to stale AWAITING_RETURN"
+    )
+
+    # resume 後不得重複發出任何事件（已在 confirm_return 發過）
+    follow = engine.update(True, 30.1)
+    assert follow == []
+
+    # 再次 confirm_return 應為 no-op（狀態已是 WORKING）
+    assert engine.confirm_return(31.0) == []
+
+
+def test_start_rest_during_pause_survives_resume() -> None:
+    """§4.1 測試 B：REMINDING → pause → start_rest → resume。
+
+    resume 後狀態必須是 RESTING，且不得產生第二筆 work session
+    （即不得再 emit WORK_ENDED / REST_STARTED）。
+    """
+    engine = _engine(work_threshold_sec=10.0)
+    engine.update(True, 0.0)
+    engine.update(True, 10.0)  # → REMINDING
+    engine.pause(11.0)
+
+    events = engine.start_rest(12.0)  # 暫停期間按「開始休息」
+    types = [e.type for e in events]
+    assert types == [TimerEventType.WORK_ENDED, TimerEventType.REST_STARTED]
+
+    engine.resume(60.0)
+    assert engine.state == TimerState.RESTING, (
+        "resume must not overwrite state back to stale REMINDING"
+    )
+
+    # resume 後離座不得重複關閉 work session
+    follow = engine.update(False, 60.1)
+    follow_types = [e.type for e in follow]
+    assert TimerEventType.WORK_ENDED not in follow_types
+    assert TimerEventType.REST_STARTED not in follow_types
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 新增測試（proposal §4.4：暫停時長不得計入絕對時間戳判斷）
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_pause_during_away_does_not_trigger_reset_on_resume() -> None:
+    """§4.4 測試 C-1：AWAY 暫停超過 reset_threshold 再 resume，不得觸發重置。"""
+    engine = _engine(work_threshold_sec=100.0, reset_threshold_sec=5.0)
+    engine.update(True, 0.0)
+    engine.update(True, 4.0)  # WORKING, work_elapsed = 4
+    engine.update(False, 5.0)  # → AWAY, away_since = 5
+    engine.update(False, 6.0)  # 離席 1 秒
+    engine.pause(6.0)
+    engine.resume(60.0)  # 暫停 54 秒（遠超 reset_threshold = 5）
+
+    events = engine.update(False, 60.5)  # 等效離席僅 1.5 秒
+    assert TimerEventType.WORK_ENDED not in [e.type for e in events], (
+        "pause duration must not count toward the away reset threshold"
+    )
+    assert engine.state == TimerState.AWAY
+
+    # 繼續離席到真正滿足門檻（等效離席 5.5 秒）→ 才重置
+    events2 = engine.update(False, 64.5)
+    assert TimerEventType.WORK_ENDED in [e.type for e in events2]
+    assert engine.state == TimerState.IDLE
+
+
+def test_pause_during_reminding_does_not_repeat_reminder_on_resume() -> None:
+    """§4.4 測試 C-2：REMINDING 暫停超過 repeat_interval 再 resume，不得立即重發提醒。"""
+    engine = _engine(work_threshold_sec=10.0, repeat_interval_sec=3.0)
+    engine.update(True, 0.0)
+    engine.update(True, 10.0)  # → REMINDING, reminder_last_t = 10
+    engine.update(True, 11.0)
+    engine.pause(11.0)
+    engine.resume(60.0)  # 暫停 49 秒（遠超 repeat_interval = 3）
+
+    events = engine.update(True, 60.5)  # 等效僅過 1.5 秒
+    assert TimerEventType.REMINDER_REPEATED not in [e.type for e in events], (
+        "pause duration must not count toward the reminder repeat interval"
+    )
+
+    # 等效過滿 repeat_interval（reminder_last_t 平移至 59 → 62 起可重發）
+    events2 = engine.update(True, 62.5)
+    assert [e.type for e in events2] == [TimerEventType.REMINDER_REPEATED]
+
+
+def test_fixed_rest_not_credited_by_pause_and_rest_duration_excludes_pause() -> None:
+    """§4.4 測試 D：RESTING（fixed 模式）跨暫停。
+
+    必要休息時長不得被暫停折抵；confirm_return 的 rest_duration 不含暫停時長。
+    """
+    engine = _engine(required_rest_sec=5.0, rest_count_mode=RestCountMode.FIXED)
+    engine.update(True, 0.0)
+    engine.update(True, 10.0)  # → REMINDING
+    engine.start_rest(10.0)  # → RESTING, rest_started_at = 10
+    engine.update(True, 12.0)  # 已休息 2 秒
+    engine.pause(12.0)
+    engine.resume(112.0)  # 暫停 100 秒
+
+    # 暫停時長不得折抵必要休息（等效僅休息 2.1 秒 < 5 秒）
+    events = engine.update(True, 112.1)
+    assert TimerEventType.RETURN_PROMPT not in [e.type for e in events], (
+        "pause duration must not be credited toward the required rest"
+    )
+    assert engine.state == TimerState.RESTING
+
+    # rest_started_at 平移至 110 → 115 起滿足
+    events2 = engine.update(True, 115.5)
+    assert TimerEventType.RETURN_PROMPT in [e.type for e in events2]
+    assert engine.state == TimerState.AWAITING_RETURN
+
+    # confirm_return 的休息時長不含暫停：116 - 110 = 6 秒
+    events3 = engine.confirm_return(116.0)
+    rest_ended = next(e for e in events3 if e.type == TimerEventType.REST_ENDED)
+    assert abs(rest_ended.duration_sec - 6.0) < 0.01
+
+
+def test_start_rest_during_pause_counts_rest_from_resume() -> None:
+    """§4.4 補充：暫停期間下達 start_rest，固定休息時間自 resume 起算。
+
+    暫停期間設定的時間戳在 resume 平移時需 clamp 至 resume 時刻，
+    不得平移到未來（過度平移）也不得保留暫停中的舊值（折抵休息）。
+    """
+    engine = _engine(required_rest_sec=5.0, rest_count_mode=RestCountMode.FIXED)
+    engine.update(True, 0.0)
+    engine.update(True, 10.0)  # → REMINDING
+    engine.pause(11.0)
+    engine.start_rest(50.0)  # 暫停期間開始休息
+    engine.resume(100.0)
+
+    # 休息自 resume（100）起算：103 時僅休息 3 秒 → 未滿足
+    events = engine.update(True, 103.0)
+    assert TimerEventType.RETURN_PROMPT not in [e.type for e in events]
+    assert engine.state == TimerState.RESTING
+
+    # 105.5 時休息 5.5 秒 → 滿足
+    events2 = engine.update(True, 105.5)
+    assert TimerEventType.RETURN_PROMPT in [e.type for e in events2]
+    assert engine.state == TimerState.AWAITING_RETURN

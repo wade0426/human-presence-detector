@@ -9,6 +9,10 @@ import cv2
 from src.config import SourceConfig
 from src.types import Frame
 
+# §4.10: FFmpeg can block for tens of seconds (or forever) on an unresponsive
+# RTSP server; bound both the initial open and every read.
+RTSP_TIMEOUT_MSEC = 5000
+
 
 class VideoSource(Protocol):
     def open(self) -> None: ...
@@ -44,7 +48,10 @@ class WebcamSource:
 
     @property
     def is_opened(self) -> bool:
-        return self._cap is not None and bool(self._cap.isOpened())
+        # §4.13: snapshot the attribute first — the grabber thread may set
+        # self._cap to None (release) between two reads, raising AttributeError.
+        cap = self._cap
+        return cap is not None and bool(cap.isOpened())
 
 
 class RTSPSource:
@@ -54,8 +61,23 @@ class RTSPSource:
         self._cap: cv2.VideoCapture | None = None
 
     def open(self) -> None:
-        self._cap = cv2.VideoCapture(self._url, cv2.CAP_FFMPEG)
-        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        # §4.10: open/read timeouts must be passed via the constructor params —
+        # setting them with cap.set() after construction is too late for the
+        # FFMPEG backend (the blocking open already happened).
+        # §4.17: CAP_PROP_BUFFERSIZE was removed — the FFMPEG backend does not
+        # support it (set() returns False, silent no-op). Latency is handled by
+        # FrameGrabber continuously grabbing at high frequency and keeping only
+        # the latest frame.
+        self._cap = cv2.VideoCapture(
+            self._url,
+            cv2.CAP_FFMPEG,
+            [
+                cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,
+                RTSP_TIMEOUT_MSEC,
+                cv2.CAP_PROP_READ_TIMEOUT_MSEC,
+                RTSP_TIMEOUT_MSEC,
+            ],
+        )
 
     def read(self) -> Frame | None:
         if self._cap is None:
@@ -73,7 +95,9 @@ class RTSPSource:
 
     @property
     def is_opened(self) -> bool:
-        return self._cap is not None and bool(self._cap.isOpened())
+        # §4.13: snapshot first to avoid the TOCTOU race with release().
+        cap = self._cap
+        return cap is not None and bool(cap.isOpened())
 
 
 class ReconnectingSource:

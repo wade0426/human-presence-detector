@@ -22,7 +22,7 @@ _STATUS_MAP: dict[str, ConnectionState] = {
 }
 
 _SEVERITY: dict[ConnectionState, str] = {
-    ConnectionState.IDLE: "neutral",
+    ConnectionState.IDLE: "muted",  # 與 PresenceBadge 的 muted 統一，共用同一條 QSS 規則
     ConnectionState.CONNECTING: "info",
     ConnectionState.CONNECTED: "success",
     ConnectionState.RECONNECTING: "warning",
