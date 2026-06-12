@@ -1,6 +1,6 @@
 # 全系統重新設計：休息流程驅動的純核心架構
 
-> 文件狀態：設計定稿（待使用者審閱）
+> 文件狀態：已實作（待手動驗收）
 > 日期：2026-06-12
 > 適用專案：human-presence-detector（人體辨識休息提醒系統）
 > 範圍：整個應用程式原地重寫（同 repo、Python + PySide6、功能對等＋新休息流程）
@@ -179,7 +179,9 @@ ui:        { start_minimized: false }
 ## 9. Qt 外殼
 
 - **worker（shell/worker.py）**：移植現行 DetectionWorker 骨架（影格新鮮度、健康監測、CUDA fallback 通知、logging_enabled 全保留），把 TimerEngine 替換為 core 狀態機＋記帳簿；事件→signal 對映集中於一處。
-- **RestCoachOverlay（shell/overlay.py，新）**：無框、置頂、三型態（小角落視窗 → 放大置中 → 全螢幕半透明，`WA_TranslucentBackground`）；顯示主畫面（primary screen）；內容：提示文字、滯留時長、（鎖屏啟用時）鎖屏倒數、「取消休息」按鈕（發 CANCEL_PENDING）。由 ESCALATED 事件驅動型態切換，離開觸發狀態即隱藏。
+- **RestCoachOverlay（shell/overlay.py，新）**：無框、置頂、三型態（小角落視窗 → 放大置中 → 全螢幕半透明，`WA_TranslucentBackground`）；顯示主畫面（primary screen）；內容：提示文字、滯留時長（讀 snapshot 的階梯 dwell 欄位）、（鎖屏啟用時）鎖屏倒數、「取消休息」按鈕（REST_PENDING 來源，發 CANCEL_PENDING）、「開始休息（請離席）」按鈕（REMINDING 來源，發 START_REST——全螢幕遮罩會擋住 popup 的開始休息鈕，覆蓋層需自備善意出口）。由 snapshot 驅動型態切換，離開觸發狀態即隱藏。
+- **階梯音效（shell/app.py EscalationSoundController，新）**：§5 表的聽覺動作——進入 REST_PENDING（stage 0）播提示音一次；stage 1+ 依 `repeat_interval` 重複；離開觸發狀態、暫停或 stage 3 即停。僅 REST_PENDING 來源啟用（REMINDING 的重複音由 popup 負責，不疊加）。
+- **解鎖偵測（shell/session_events.py，新）**：Windows WTS session 通知（WM_WTSSESSION_CHANGE / WTS_SESSION_UNLOCK）→ core 階梯歸零重爬（§5「鎖屏後回來」；鎖屏仍單一工作週期至多一次）；非 Windows no-op。
 - **提醒視窗（popup/toast/floating）**：照現行移植；popup 的「開始休息」按鈕文案在 presence 模式改為「開始休息（請離席）」。
 - **主視窗**：佈局沿用；狀態列新增「等待離席──請離開座位（已等待 mm:ss）」與「休息中斷」顯示；暫停按鈕與托盤同步機制照本輪修正移植。
 - **鎖屏**：LOCK_REQUESTED 事件 → 主執行緒 slot → `screen_lock.lock_workstation()`（非 Windows no-op，移植現行）。

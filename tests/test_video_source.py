@@ -13,7 +13,7 @@ from src.capture.video_source import (
     WebcamSource,
     create_source,
 )
-from src.config import SourceConfig
+from src.infra.config import SourceConfig
 from src.types import Frame
 
 

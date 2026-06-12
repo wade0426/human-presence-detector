@@ -1,3 +1,4 @@
+version: 2
 source:
   type: rtsp
   rtsp_url: rtsp://127.0.0.1:554/live
@@ -5,22 +6,33 @@ source:
   reconnect_interval_sec: 5.0
 detection:
   model_path: data/model/yolov8n.pt
-  interval_sec: 1.0
-  confidence: 0.4
   device: auto
+  confidence: 0.4
+  interval_sec: 1.0
+  min_box_height_ratio: 0.25
 presence:
   roi:
-  - 0.2989949748743719
-  - 0.13978494623655913
-  - 0.41708542713567837
-  - 0.7455197132616488
-  min_box_height_ratio: 0.25
+  - 0.3081510934393638
+  - 0.010638297872340425
+  - 0.4612326043737575
+  - 0.975177304964539
   debounce_count: 3
 timer:
   work_threshold_min: 0.1
   reset_threshold_min: 0.1
   required_rest_min: 0.1
   rest_count_mode: presence
+rest_flow:
+  pending_accounting: work
+  interrupt_behavior: remind
+  rest_interrupt_after_sec: 15.0
+  escalation:
+    max_stage: 3
+    stage_after_sec:
+    - 15.0
+    - 30.0
+    - 45.0
+    apply_to_reminding: true
 reminder:
   method: popup
   repeat_interval_min: 0.2
@@ -35,13 +47,7 @@ reminder:
     enabled: true
     sound_path: D:/Code/Python/human-presence-detector/data/assets/Radar.mp3
 logging:
-  enabled: true
+  enabled: false
   db_path: data/records.sqlite
 ui:
   start_minimized: false
-force_lock:
-  enabled: true
-  trigger: overtime
-  overtime_threshold_min: 0.5
-  warning_mode: immediate
-  countdown_sec: 10

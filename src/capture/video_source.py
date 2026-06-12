@@ -6,7 +6,7 @@ from typing import Protocol
 
 import cv2
 
-from src.config import SourceConfig
+from src.infra.config import SourceConfig
 from src.types import Frame
 
 # §4.10: FFmpeg can block for tens of seconds (or forever) on an unresponsive
