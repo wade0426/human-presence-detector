@@ -22,9 +22,9 @@ timer:
   required_rest_min: 0.1
   rest_count_mode: presence
 reminder:
-  method: toast
+  method: popup
   repeat_interval_min: 0.2
-  reminding_display_mode: overtime
+  reminding_display_mode: work_and_reminder
   popup:
     media_path: D:/Code/Python/human-presence-detector/data/assets/rest.jpg
     media_type: image
@@ -32,7 +32,7 @@ reminder:
   floating:
     position: top-right
   return_sound:
-    enabled: false
+    enabled: true
     sound_path: D:/Code/Python/human-presence-detector/data/assets/Radar.mp3
 logging:
   enabled: true
@@ -40,8 +40,8 @@ logging:
 ui:
   start_minimized: false
 force_lock:
-  enabled: false
+  enabled: true
   trigger: overtime
-  overtime_threshold_min: 10.0
+  overtime_threshold_min: 0.5
   warning_mode: immediate
   countdown_sec: 10
