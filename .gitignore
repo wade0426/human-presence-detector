@@ -31,6 +31,8 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# 本專案的打包設定為人工維護、需進版控（覆蓋上面的 *.spec 忽略）
+!packaging/human_presence_detector.spec
 
 # Installer logs
 pip-log.txt

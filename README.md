@@ -61,6 +61,17 @@ python -m src.main
 python src/main.py
 ```
 
+## 打包成 Windows 應用程式
+
+把專案打包成帶自家圖示、可直接執行的 onedir 應用程式：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+```
+
+產物在 `dist/HumanPresenceDetector/`，整包壓縮即可發佈。詳見
+[packaging/README.md](packaging/README.md)（圖示如何生效、路徑解析設計、疑難排解）。
+
 ## 設定說明
 
 主要設定位於 [config.yaml](/D:/Code/Python/human-presence-detector/config.yaml)：

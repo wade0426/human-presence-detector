@@ -31,7 +31,7 @@ from src.capture.video_source import create_source
 from src.core.events import TimerSnapshot, TimerState
 from src.core.state_machine import RestFlowMachine
 from src.detection.detector import PersonDetector
-from src.infra import screen_lock
+from src.infra import app_identity, frozen, screen_lock
 from src.infra.config import (
     AppConfig,
     ConfigError,
@@ -43,6 +43,7 @@ from src.infra.store import RecordStore
 from src.logging_setup import setup_logging, suppress_decoder_noise
 from src.presence import PresenceEvaluator
 from src.shell.clear_data import ClearDataService, ClearResult, run_clear_data_flow
+from src.shell.icons import load_app_icon
 from src.shell.main_window import MainWindow
 from src.shell.overlay import RestCoachOverlay
 from src.shell.reminders.context import ReminderContext
@@ -553,6 +554,10 @@ def _install_sigint(app: QApplication) -> None:
 
 
 def main() -> int:
+    # 凍結(PyInstaller)後先把工作目錄切到 exe 資料夾,確保 config.yaml、
+    # data/model、data/records.sqlite 等 CWD 相對路徑無論從何處啟動都能解析
+    # （開發模式 no-op）。必須早於 load_config 與任何相對路徑存取。
+    frozen.chdir_to_bundle()
     suppress_decoder_noise()
     setup_logging()
     # §4.5: 設定錯誤一律以清楚的 ConfigError 訊息呈現並以非零碼退出，
@@ -562,8 +567,15 @@ def main() -> int:
     except ConfigError as exc:
         print(f"設定檔錯誤，請修正 {CONFIG_PATH} 後重新啟動：\n{exc}", file=sys.stderr)
         return 1
+    # Windows 工作列圖示：在建立 QApplication（與任何視窗）之前設定明確的
+    # AppUserModelID，工作列按鈕才會改用下方 setWindowIcon 的圖示，而非沿用
+    # python.exe 的預設圖示（非 Windows no-op）。
+    app_identity.set_app_user_model_id()
     existing_app = QApplication.instance()
     app = existing_app if isinstance(existing_app, QApplication) else QApplication(sys.argv)
+    # §4.15 資產 icon.png：套用到標題列、Alt-Tab、工作列與所有視窗／對話框／
+    # 覆蓋層（先前僅托盤設過圖示，主視窗等沿用 Windows 預設）。
+    app.setWindowIcon(load_app_icon())
     ThemeManager(app).apply()
 
     store = RecordStore(cfg.logging.db_path)

@@ -1,0 +1,59 @@
+# 人體辨識休息提醒系統 — 發佈用設定範本
+#
+# build.ps1 會把本檔複製到 dist/HumanPresenceDetector/config.yaml。
+# 所有相對路徑（model_path、media/sound、db_path）皆相對於 exe 所在資料夾
+# （程式啟動時會自動把工作目錄切到該處），因此整包資料夾可任意搬移。
+# 第一次使用請依實機調整 source（RTSP 網址或改用 webcam）與 presence.roi。
+version: 2
+source:
+  type: rtsp                              # rtsp 或 webcam
+  rtsp_url: rtsp://127.0.0.1:554/live
+  webcam_index: 0
+  reconnect_interval_sec: 5.0
+detection:
+  model_path: data/model/yolov8n.pt
+  device: auto                            # auto / cpu / cuda
+  confidence: 0.4
+  interval_sec: 1.0
+  min_box_height_ratio: 0.25
+presence:
+  roi:
+  - 0.3
+  - 0.2
+  - 0.4
+  - 0.7
+  debounce_count: 3
+timer:
+  work_threshold_min: 45                  # 連續工作多久提醒（分）
+  reset_threshold_min: 5                  # 離開多久視為真正休息（分）
+  required_rest_min: 5
+  rest_count_mode: presence
+rest_flow:
+  pending_accounting: work
+  interrupt_behavior: remind
+  rest_interrupt_after_sec: 15.0
+  escalation:
+    max_stage: 3
+    stage_after_sec:
+    - 15.0
+    - 30.0
+    - 45.0
+    apply_to_reminding: true
+reminder:
+  method: popup                           # popup / toast / floating
+  repeat_interval_min: 1
+  reminding_display_mode: work_and_reminder
+  popup:
+    media_path: data/assets/rest.jpg
+    media_type: image
+    sound_path: data/assets/Radar.mp3
+  floating:
+    position: top-right
+  return_sound:
+    enabled: true
+    sound_path: data/assets/Radar.mp3
+logging:
+  enabled: false
+  db_path: data/records.sqlite
+ui:
+  start_minimized: false
